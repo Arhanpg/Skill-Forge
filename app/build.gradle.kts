@@ -86,7 +86,7 @@ dependencies {
     // Coroutines for timeout handling
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     // Google Sign-In with Credential Manager
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.0")
     implementation("androidx.credentials:credentials:1.2.2")

@@ -7,6 +7,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,6 +51,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.launch
 import java.security.MessageDigest
 import java.util.UUID
@@ -62,7 +64,8 @@ enum class AuthMode {
 @Composable
 fun AuthScreen(navController: NavHostController) {
     val auth = FirebaseAuth.getInstance()
-    val db = FirebaseFirestore.getInstance()
+    // FIX: Connect to the specific database "skillforge"
+    val db = remember { FirebaseFirestore.getInstance("skillforge") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -115,12 +118,11 @@ fun AuthScreen(navController: NavHostController) {
             verticalArrangement = Arrangement.Center
         ) {
             // --- LOGO SECTION ---
-            // Using your new logo without background
             Image(
                 painter = painterResource(id = R.drawable.skillforge_logo1),
                 contentDescription = "Skill Forge Logo",
                 modifier = Modifier
-                    .size(220.dp) // Adjusted size for balance
+                    .size(220.dp)
                     .scale(scale)
             )
 
@@ -137,7 +139,6 @@ fun AuthScreen(navController: NavHostController) {
             Spacer(modifier = Modifier.height(32.dp))
 
             // --- TABS (LOGIN / REGISTER) ---
-            // A pill-shaped container to toggle modes
             Surface(
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.3f),
@@ -167,8 +168,6 @@ fun AuthScreen(navController: NavHostController) {
             Spacer(modifier = Modifier.height(24.dp))
 
             // --- INPUT FIELDS ---
-
-            // Username (Only shows when Sign Up is selected)
             AnimatedVisibility(
                 visible = authMode == AuthMode.SIGN_UP,
                 enter = fadeIn() + expandVertically(),
@@ -241,7 +240,6 @@ fun AuthScreen(navController: NavHostController) {
                     errorMsg = ""
 
                     if (authMode == AuthMode.LOGIN) {
-                        // Login Logic
                         auth.signInWithEmailAndPassword(email, password)
                             .addOnCompleteListener { task ->
                                 if (task.isSuccessful) {
@@ -253,7 +251,6 @@ fun AuthScreen(navController: NavHostController) {
                                 }
                             }
                     } else {
-                        // Sign Up Logic
                         auth.createUserWithEmailAndPassword(email, password)
                             .addOnCompleteListener { task ->
                                 if (task.isSuccessful) {
@@ -278,12 +275,12 @@ fun AuthScreen(navController: NavHostController) {
                 enabled = !loading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp), // Taller button
+                    .height(50.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = primaryCyan,
                     disabledContainerColor = primaryCyan.copy(alpha = 0.5f)
                 ),
-                shape = CircleShape // Fully rounded pill shape
+                shape = CircleShape
             ) {
                 if (loading) {
                     CircularProgressIndicator(
@@ -440,11 +437,10 @@ fun ModernAuthTextField(
             imeAction = imeAction
         ),
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp), // More rounded corners
+        shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = Color.White,
             unfocusedTextColor = Color.White,
-            // Glassmorphism effect: slightly transparent white background
             focusedContainerColor = Color.White.copy(alpha = 0.05f),
             unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
             focusedBorderColor = primaryColor,
@@ -543,25 +539,22 @@ fun saveUserToFirestore(
 ) {
     val userId = auth.currentUser?.uid ?: return onError("User ID not found")
 
-    db.collection("users").document(userId).get()
-        .addOnSuccessListener { document ->
-            if (!document.exists()) {
-                db.collection("users").document(userId)
-                    .set(
-                        mapOf(
-                            "username" to username,
-                            "email" to email,
-                            "createdAt" to System.currentTimeMillis(),
-                            "avatarCustomization" to ""
-                        )
-                    )
-                    .addOnSuccessListener { onSuccess() }
-                    .addOnFailureListener { e -> onError("Error saving profile: ${e.message}") }
-            } else {
-                onSuccess()
-            }
-        }
-        .addOnFailureListener { e -> onError("Database error: ${e.message}") }
+    // FIX: Explicitly initialize XP, Coins, and Streak to avoid crashes on Home Screen
+    val userData = hashMapOf(
+        "username" to username,
+        "email" to email,
+        "createdAt" to System.currentTimeMillis(),
+        "avatarCustomization" to "",
+        "xp" to 0,
+        "coins" to 0,
+        "streakDays" to 0
+    )
+
+    // Use SetOptions.merge() to prevent overwriting existing data if the user logs in again
+    db.collection("users").document(userId)
+        .set(userData, SetOptions.merge())
+        .addOnSuccessListener { onSuccess() }
+        .addOnFailureListener { e -> onError("Error saving profile: ${e.message}") }
 }
 
 fun navigateToMain(navController: NavHostController) {

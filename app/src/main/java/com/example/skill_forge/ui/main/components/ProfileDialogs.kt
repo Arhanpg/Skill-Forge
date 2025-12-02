@@ -41,6 +41,7 @@ fun AvatarPickerDialog(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let {
+            // Update profile with URI and clear the Resource ID
             onAvatarSelected(currentProfile.copy(avatarUri = it.toString(), avatarResourceId = null))
         }
     }
@@ -62,16 +63,16 @@ fun AvatarPickerDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 600.dp),
+                .heightIn(max = 700.dp),
             colors = CardDefaults.cardColors(
                 containerColor = Color(0xFF1A2632)
             ),
             shape = RoundedCornerShape(20.dp)
         ) {
+            // REMOVED .verticalScroll here because LazyVerticalGrid handles its own scrolling.
+            // Nested scrolling causes crashes.
             Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .verticalScroll(rememberScrollState())
+                modifier = Modifier.padding(20.dp)
             ) {
                 Text(
                     "Choose Avatar",
@@ -108,11 +109,12 @@ fun AvatarPickerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Grid of Avatars
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.heightIn(max = 400.dp)
+                    modifier = Modifier.weight(1f) // Takes available space
                 ) {
                     items(avatars) { avatarRes ->
                         Image(
@@ -127,6 +129,7 @@ fun AvatarPickerDialog(
                                     CircleShape
                                 )
                                 .clickable {
+                                    // Update profile with Resource ID and clear URI
                                     onAvatarSelected(
                                         currentProfile.copy(
                                             avatarResourceId = avatarRes,
@@ -161,7 +164,8 @@ fun EditProfileDialog(
     onDismiss: () -> Unit,
     onSave: (UserProfile) -> Unit
 ) {
-    var name by remember { mutableStateOf(currentProfile.name) }
+    // Linked to UserProfile properties
+    var name by remember { mutableStateOf(currentProfile.username) }
     var dob by remember { mutableStateOf(currentProfile.dob) }
     var qualification by remember { mutableStateOf(currentProfile.qualification) }
 
@@ -173,7 +177,7 @@ fun EditProfileDialog(
             ),
             shape = RoundedCornerShape(20.dp)
         ) {
-            Column(modifier = Modifier.padding(24.dp)) {
+            Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
                 Text(
                     "Edit Profile",
                     color = Color.White,
@@ -254,7 +258,7 @@ fun EditProfileDialog(
                         onClick = {
                             onSave(
                                 currentProfile.copy(
-                                    name = name,
+                                    username = name, // Map 'name' UI back to 'username' data
                                     dob = dob,
                                     qualification = qualification
                                 )

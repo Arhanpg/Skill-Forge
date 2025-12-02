@@ -1,6 +1,7 @@
 package com.example.skill_forge.ui.main.screens
 
 import android.app.Activity
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,20 +45,21 @@ import com.example.skill_forge.ui.main.components.EditProfileDialog
 import com.example.skill_forge.ui.main.models.UserProfile
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
     val user = auth.currentUser
-    val db = FirebaseFirestore.getInstance()
+    val db = FirebaseFirestore.getInstance() // Make sure this matches AuthScreen
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
     // Brand Colors
     val neonCyan = Color(0xFF00E5FF)
-    val darkBg = Color(0xFF0F172A) // Slate 9000xFF2C5364
-    val cardBg = Color(0xFF1E293B) // Slate 800
+    val darkBg = Color(0xFF0F172A)
+    val cardBg = Color(0xFF1E293B)
 
-    // --- FIX: Extend dark background to System Navigation Bar ---
+    // --- System Bar Coloring ---
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -73,16 +75,26 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 
     LaunchedEffect(user?.uid) {
         user?.uid?.let { uid ->
-            db.collection("user_profiles").document(uid).get()
+            // FIX: Changed "user_profiles" to "users" to match AuthScreen logic
+            db.collection("users").document(uid).get()
                 .addOnSuccessListener { document ->
                     if (document.exists()) {
-                        userProfile = UserProfile(
-                            name = document.getString("name") ?: "",
-                            dob = document.getString("dob") ?: "",
-                            qualification = document.getString("qualification") ?: "",
-                            avatarResourceId = document.getLong("avatarResourceId")?.toInt(),
-                            avatarUri = document.getString("avatarUri")
-                        )
+                        try {
+                            // Firestore auto-mapping is safer if UserProfile has default values
+                            val profile = document.toObject(UserProfile::class.java)
+                            if (profile != null) {
+                                userProfile = profile
+                            }
+                        } catch (e: Exception) {
+                            // Fallback manual mapping if auto fails
+                            userProfile = UserProfile(
+                                username = document.getString("username") ?: "",
+                                dob = document.getString("dob") ?: "",
+                                qualification = document.getString("qualification") ?: "",
+                                avatarResourceId = document.getLong("avatarResourceId")?.toInt(),
+                                avatarUri = document.getString("avatarUri")
+                            )
+                        }
                     }
                     loading = false
                 }
@@ -92,9 +104,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 
     if (loading) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(darkBg),
+            modifier = Modifier.fillMaxSize().background(darkBg),
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator(color = neonCyan)
@@ -103,51 +113,31 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
     }
 
     // Main Container
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(darkBg)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(darkBg)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState),
+            modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // --- HEADER SECTION ---
-            Box(
-                contentAlignment = Alignment.BottomCenter,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Gradient Background Banner
+            Box(contentAlignment = Alignment.BottomCenter, modifier = Modifier.fillMaxWidth()) {
+                // Gradient Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
-                        .padding(bottom = 60.dp) // Leave space for avatar overlap
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xFF006064), // Dark Cyan
-                                    darkBg
-                                )
-                            )
-                        )
+                        .padding(bottom = 60.dp)
+                        .background(Brush.verticalGradient(colors = listOf(Color(0xFF006064), darkBg)))
                 )
 
-                // Avatar Container (Floating)
-                Box(
-                    modifier = Modifier.size(130.dp),
-                    contentAlignment = Alignment.BottomEnd
-                ) {
-                    // Profile Image
+                // Avatar Container
+                Box(modifier = Modifier.size(130.dp), contentAlignment = Alignment.BottomEnd) {
                     Box(
                         modifier = Modifier
                             .size(130.dp)
-                            .shadow(elevation = 10.dp, shape = CircleShape)
+                            .shadow(10.dp, CircleShape)
                             .clip(CircleShape)
-                            .border(4.dp, cardBg, CircleShape) // Inner border matches bg
-                            .border(6.dp, neonCyan, CircleShape) // Outer glowing border
+                            .border(4.dp, cardBg, CircleShape)
+                            .border(6.dp, neonCyan, CircleShape)
                             .background(cardBg)
                             .clickable { showAvatarPicker = true },
                         contentAlignment = Alignment.Center
@@ -167,18 +157,13 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
                             userProfile.avatarResourceId != null -> {
                                 Image(
                                     painter = painterResource(id = userProfile.avatarResourceId!!),
-                                    contentDescription = "Profile Avatar",
+                                    contentDescription = "Avatar",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
                             else -> {
-                                Icon(
-                                    Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = Color.Gray,
-                                    modifier = Modifier.size(64.dp)
-                                )
+                                Icon(Icons.Default.Person, null, tint = Color.Gray, modifier = Modifier.size(64.dp))
                             }
                         }
                     }
@@ -194,142 +179,80 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
                             .clickable { showAvatarPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "Edit Avatar",
-                            tint = Color.Black, // Dark icon on bright cyan
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Icon(Icons.Default.Edit, null, tint = Color.Black, modifier = Modifier.size(18.dp))
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- USER INFO SECTION ---
+            // --- USER INFO ---
+            // FIX: Changed .name to .username
             Text(
-                text = userProfile.name.ifEmpty { user?.displayName ?: "Skill Forger" },
+                text = userProfile.username.ifEmpty { user?.displayName ?: "Skill Forger" },
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color.White,
                 fontWeight = FontWeight.Bold
             )
 
-            Text(
-                text = user?.email ?: "",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.Gray
-            )
+            Text(text = user?.email ?: "", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // --- STATS / BADGES ROW ---
+            // --- STATS ROW ---
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (userProfile.qualification.isNotEmpty()) {
-                    ProfileBadge(
-                        icon = Icons.Default.School,
-                        text = userProfile.qualification,
-                        tint = neonCyan,
-                        bgColor = cardBg
-                    )
+                    ProfileBadge(Icons.Default.School, userProfile.qualification, neonCyan, cardBg)
                     Spacer(modifier = Modifier.width(12.dp))
                 }
-
                 if (userProfile.dob.isNotEmpty()) {
-                    ProfileBadge(
-                        icon = Icons.Default.Cake,
-                        text = userProfile.dob,
-                        tint = Color(0xFFFFAB40), // Orange for DOB
-                        bgColor = cardBg
-                    )
+                    ProfileBadge(Icons.Default.Cake, userProfile.dob, Color(0xFFFFAB40), cardBg)
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // --- OPTIONS MENU ---
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-            ) {
-                Text(
-                    "Account Settings",
-                    color = Color.Gray,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
-                )
+            // --- MENU ---
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                Text("Account Settings", color = Color.Gray, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp, start = 4.dp))
 
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Card(colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                     Column {
-                        ProfileMenuItem(
-                            icon = Icons.Default.Edit,
-                            title = "Edit Profile",
-                            onClick = { showEditDialog = true }
-                        )
-                        HorizontalDivider(
-                            color = darkBg,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        ProfileMenuItem(
-                            icon = Icons.Default.Settings,
-                            title = "App Settings",
-                            onClick = { /* TODO */ }
-                        )
-                        HorizontalDivider(
-                            color = darkBg,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        ProfileMenuItem(
-                            icon = Icons.AutoMirrored.Filled.Help,
-                            title = "Help & Support",
-                            onClick = { /* TODO */ }
-                        )
+                        ProfileMenuItem(Icons.Default.Edit, "Edit Profile") { showEditDialog = true }
+                        HorizontalDivider(color = darkBg, thickness = 1.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileMenuItem(Icons.Default.Settings, "App Settings") { /* TODO */ }
+                        HorizontalDivider(color = darkBg, thickness = 1.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileMenuItem(Icons.AutoMirrored.Filled.Help, "Help & Support") { /* TODO */ }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // --- LOGOUT BUTTON ---
+            // --- LOGOUT ---
             Button(
                 onClick = {
                     auth.signOut()
-                    navController.navigate("auth") {
-                        popUpTo("main") { inclusive = true }
-                    }
+                    navController.navigate("auth") { popUpTo("main") { inclusive = true } }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFEF4444).copy(alpha = 0.15f), // Soft Red background
-                    contentColor = Color(0xFFEF4444) // Red Text
-                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.15f), contentColor = Color(0xFFEF4444)),
                 shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
+                border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
             ) {
-                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.ExitToApp, null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Log Out", fontWeight = FontWeight.Bold)
             }
-
             Spacer(modifier = Modifier.height(40.dp))
         }
     }
 
-    // Dialogs
+    // --- DIALOGS ---
     if (showAvatarPicker) {
         AvatarPickerDialog(
             currentProfile = userProfile,
@@ -337,14 +260,15 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
             onAvatarSelected = { selectedProfile ->
                 userProfile = selectedProfile
                 user?.uid?.let { uid ->
-                    db.collection("user_profiles").document(uid).set(
+                    // FIX: Changed "name" to "username" and collection to "users"
+                    db.collection("users").document(uid).set(
                         mapOf(
-                            "name" to userProfile.name,
+                            "username" to userProfile.username,
                             "dob" to userProfile.dob,
                             "qualification" to userProfile.qualification,
                             "avatarResourceId" to selectedProfile.avatarResourceId,
                             "avatarUri" to selectedProfile.avatarUri
-                        )
+                        ), SetOptions.merge()
                     )
                 }
                 showAvatarPicker = false
@@ -359,14 +283,15 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
             onSave = { updatedProfile ->
                 userProfile = updatedProfile
                 user?.uid?.let { uid ->
-                    db.collection("user_profiles").document(uid).set(
+                    // FIX: Changed "name" to "username" and collection to "users"
+                    db.collection("users").document(uid).set(
                         mapOf(
-                            "name" to updatedProfile.name,
+                            "username" to updatedProfile.username,
                             "dob" to updatedProfile.dob,
                             "qualification" to updatedProfile.qualification,
                             "avatarResourceId" to updatedProfile.avatarResourceId,
                             "avatarUri" to updatedProfile.avatarUri
-                        )
+                        ), SetOptions.merge()
                     )
                 }
                 showEditDialog = false
@@ -378,76 +303,27 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 // --- HELPER COMPONENTS ---
 
 @Composable
-fun ProfileBadge(
-    icon: ImageVector,
-    text: String,
-    tint: Color,
-    bgColor: Color
-) {
-    Surface(
-        color = bgColor,
-        shape = RoundedCornerShape(50),
-        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.3f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(16.dp)
-            )
+fun ProfileBadge(icon: ImageVector, text: String, tint: Color, bgColor: Color) {
+    Surface(color = bgColor, shape = RoundedCornerShape(50), border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = text,
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
 
 @Composable
-fun ProfileMenuItem(
-    icon: ImageVector,
-    title: String,
-    onClick: () -> Unit
-) {
+fun ProfileMenuItem(icon: ImageVector, title: String, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(16.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .background(Color.White.copy(alpha = 0.05f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color(0xFF00E5FF),
-                modifier = Modifier.size(20.dp)
-            )
+        Box(modifier = Modifier.size(36.dp).background(Color.White.copy(alpha = 0.05f), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
         }
         Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White,
-            modifier = Modifier.weight(1f)
-        )
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-            contentDescription = null,
-            tint = Color.Gray,
-            modifier = Modifier.size(14.dp)
-        )
+        Text(text = title, style = MaterialTheme.typography.bodyLarge, color = Color.White, modifier = Modifier.weight(1f))
+        Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
     }
 }

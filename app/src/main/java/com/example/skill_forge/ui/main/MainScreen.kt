@@ -15,13 +15,14 @@ import com.example.skill_forge.ui.main.components.BottomNavigationBar
 import com.example.skill_forge.ui.main.screens.HomeScreen
 import com.example.skill_forge.ui.main.screens.ProfileScreen
 import com.example.skill_forge.ui.main.screens.StoreScreen
-
 import com.example.skill_forge.ui.main.screens.TaskScreen
 import com.google.firebase.auth.FirebaseAuth
 
 @Composable
 fun MainScreen(navController: NavHostController) {
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    // We still need auth for ProfileScreen if you haven't refactored that one yet
     val auth = FirebaseAuth.getInstance()
 
     Scaffold(
@@ -49,9 +50,11 @@ fun MainScreen(navController: NavHostController) {
         ) {
             Box(modifier = Modifier.padding(paddingValues)) {
                 when (selectedTab) {
-                    0 -> HomeScreen(auth)
+                    // FIX: Removed 'auth' parameter because HomeScreen now handles it internally
+                    0 -> HomeScreen()
                     1 -> TaskScreen()
                     2 -> StoreScreen()
+                    // ProfileScreen likely still needs these parameters based on your previous code
                     3 -> ProfileScreen(auth, navController)
                 }
             }
