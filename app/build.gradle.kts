@@ -77,10 +77,22 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
 
+
+    // CRITICAL: Use specific versions for Samsung compatibility
+    implementation("androidx.credentials:credentials:1.2.2")
+    implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
+    // Coroutines for timeout handling
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+
     // Google Sign-In with Credential Manager
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.0")
     implementation("androidx.credentials:credentials:1.2.2")
     implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
