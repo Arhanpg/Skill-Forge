@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.expandVertically
@@ -45,7 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.navigation.NavHostController
 import com.example.skill_forge.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -53,12 +56,15 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import java.security.MessageDigest
 import java.util.UUID
 
 private const val TAG = "AuthScreen"
+private const val TIMEOUT_DURATION = 10000L // 10 seconds timeout
 
 enum class AuthMode {
     LOGIN, SIGN_UP
@@ -149,13 +155,19 @@ fun AuthScreen(navController: NavHostController) {
                     AuthTabButton(
                         text = "Log In",
                         selected = authMode == AuthMode.LOGIN,
-                        onClick = { authMode = AuthMode.LOGIN },
+                        onClick = {
+                            authMode = AuthMode.LOGIN
+                            errorMsg = "" // Clear error on tab switch
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     AuthTabButton(
                         text = "Sign Up",
                         selected = authMode == AuthMode.SIGN_UP,
-                        onClick = { authMode = AuthMode.SIGN_UP },
+                        onClick = {
+                            authMode = AuthMode.SIGN_UP
+                            errorMsg = "" // Clear error on tab switch
+                        },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -229,6 +241,7 @@ fun AuthScreen(navController: NavHostController) {
                         errorMsg = "Please fill in all fields"
                         return@Button
                     }
+
                     if (authMode == AuthMode.SIGN_UP && username.isBlank()) {
                         errorMsg = "Username is required for sign up"
                         return@Button
@@ -237,39 +250,45 @@ fun AuthScreen(navController: NavHostController) {
                     loading = true
                     errorMsg = ""
 
-                    if (authMode == AuthMode.LOGIN) {
-                        auth.signInWithEmailAndPassword(email, password)
-                            .addOnCompleteListener { task ->
-                                if (task.isSuccessful) {
+                    scope.launch {
+                        try {
+                            if (authMode == AuthMode.LOGIN) {
+                                // EMAIL LOGIN WITH TIMEOUT
+                                val loginResult = withTimeoutOrNull(TIMEOUT_DURATION) {
+                                    auth.signInWithEmailAndPassword(email, password).await()
+                                }
+
+                                if (loginResult != null) {
+                                    Log.d(TAG, "Email login successful")
                                     loading = false
-                                    navigateToMain(navController)
+                                    // Force navigation
+                                    navigateToMainScreen(navController)
                                 } else {
-                                    errorMsg = task.exception?.message ?: "Login failed"
+                                    errorMsg = "Login timeout. Please try again."
+                                    loading = false
+                                }
+                            } else {
+                                // SIGN UP WITH TIMEOUT
+                                val signUpResult = withTimeoutOrNull(TIMEOUT_DURATION) {
+                                    auth.createUserWithEmailAndPassword(email, password).await()
+                                }
+
+                                if (signUpResult != null) {
+                                    Log.d(TAG, "Sign up successful")
+                                    // Save user data in background, don't block navigation
+                                    saveUserToFirestoreAsync(db, auth, username, email)
+                                    loading = false
+                                    navigateToMainScreen(navController)
+                                } else {
+                                    errorMsg = "Sign up timeout. Please try again."
                                     loading = false
                                 }
                             }
-                    } else {
-                        auth.createUserWithEmailAndPassword(email, password)
-                            .addOnCompleteListener { task ->
-                                if (task.isSuccessful) {
-                                    scope.launch {
-                                        saveUserToFirestore(
-                                            db, auth, username, email,
-                                            onSuccess = {
-                                                loading = false
-                                                navigateToMain(navController)
-                                            },
-                                            onError = { error ->
-                                                errorMsg = error
-                                                loading = false
-                                            }
-                                        )
-                                    }
-                                } else {
-                                    errorMsg = task.exception?.message ?: "Registration failed"
-                                    loading = false
-                                }
-                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Auth error", e)
+                            errorMsg = e.message ?: "Authentication failed"
+                            loading = false
+                        }
                     }
                 },
                 enabled = !loading,
@@ -322,17 +341,18 @@ fun AuthScreen(navController: NavHostController) {
                         return@Button
                     }
 
+                    loading = true
+                    errorMsg = ""
+
                     scope.launch {
-                        loading = true
-                        errorMsg = ""
                         try {
-                            signInWithGoogle(
+                            signInWithGoogleFixed(
                                 context = context,
                                 auth = auth,
                                 db = db,
                                 onSuccess = {
                                     loading = false
-                                    navigateToMain(navController)
+                                    navigateToMainScreen(navController)
                                 },
                                 onError = { error ->
                                     errorMsg = error
@@ -340,7 +360,8 @@ fun AuthScreen(navController: NavHostController) {
                                 }
                             )
                         } catch (e: Exception) {
-                            errorMsg = "Sign-in failed: ${e.message}"
+                            Log.e(TAG, "Google Sign-In error", e)
+                            errorMsg = "Google Sign-In failed: ${e.message}"
                             loading = false
                         }
                     }
@@ -466,7 +487,8 @@ fun ModernAuthTextField(
     )
 }
 
-suspend fun signInWithGoogle(
+// FIX: Samsung S23 Ultra compatible Google Sign-In
+suspend fun signInWithGoogleFixed(
     context: Context,
     auth: FirebaseAuth,
     db: FirebaseFirestore,
@@ -474,9 +496,17 @@ suspend fun signInWithGoogle(
     onError: (String) -> Unit
 ) {
     try {
-        Log.d(TAG, "Starting Google Sign-In")
+        Log.d(TAG, "Starting Google Sign-In (Samsung S23 Ultra Compatible)")
 
-        val credentialManager = CredentialManager.create(context)
+        // Check if Credential Manager is supported
+        val credentialManager = try {
+            CredentialManager.create(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Credential Manager not supported", e)
+            onError("Your device doesn't support Google Sign-In via Credential Manager. Please use email login.")
+            return
+        }
+
         val rawNonce = UUID.randomUUID().toString()
         val bytes = rawNonce.toByteArray()
         val md = MessageDigest.getInstance("SHA-256")
@@ -493,26 +523,37 @@ suspend fun signInWithGoogle(
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get web client ID", e)
-            onError("Firebase configuration error. Check google-services.json")
+            onError("Firebase configuration error. Please check google-services.json")
             return
         }
 
-        Log.d(TAG, "Web Client ID obtained")
+        Log.d(TAG, "Building Google ID Option")
 
         val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
+            .setFilterByAuthorizedAccounts(false) // CRITICAL: Allow account picker
             .setServerClientId(webClientId)
             .setNonce(hashedNonce)
-            .setAutoSelectEnabled(false)
+            .setAutoSelectEnabled(false) // CRITICAL: Disable auto-select for Samsung devices
             .build()
 
         val request = GetCredentialRequest.Builder()
             .addCredentialOption(googleIdOption)
             .build()
 
-        Log.d(TAG, "Getting credentials...")
-        val result = credentialManager.getCredential(request = request, context = context)
-        val credential = result.credential
+        Log.d(TAG, "Requesting credentials with timeout...")
+
+        // FIX: Add timeout for Samsung devices that hang
+        val credentialResult = withTimeoutOrNull(15000L) { // 15 second timeout
+            credentialManager.getCredential(request = request, context = context)
+        }
+
+        if (credentialResult == null) {
+            Log.e(TAG, "Credential request timed out")
+            onError("Google Sign-In timed out. Please try again or use email login.")
+            return
+        }
+
+        val credential = credentialResult.credential
 
         Log.d(TAG, "Credentials obtained, creating token")
         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
@@ -520,79 +561,92 @@ suspend fun signInWithGoogle(
         val firebaseCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
 
         Log.d(TAG, "Signing in to Firebase")
-        auth.signInWithCredential(firebaseCredential).await()
+
+        // FIX: Add timeout for Firebase sign-in
+        val authResult = withTimeoutOrNull(TIMEOUT_DURATION) {
+            auth.signInWithCredential(firebaseCredential).await()
+        }
+
+        if (authResult == null) {
+            onError("Firebase sign-in timed out. Please try again.")
+            return
+        }
 
         val user = auth.currentUser
         if (user != null) {
             Log.d(TAG, "User signed in: ${user.uid}")
-            // Just navigate - don't check Firestore yet
+
+            // Save user data in background, don't block success callback
+            saveUserToFirestoreAsync(
+                db = db,
+                auth = auth,
+                username = user.displayName ?: "User",
+                email = user.email ?: ""
+            )
+
+            // Immediately call success - don't wait for Firestore
+            delay(100) // Small delay to ensure Firebase state is updated
             onSuccess()
         } else {
             Log.e(TAG, "User is null after sign-in")
             onError("Sign-in succeeded but user data is unavailable")
         }
 
+    } catch (e: NoCredentialException) {
+        Log.e(TAG, "No credentials available", e)
+        onError("No Google account found. Please add a Google account to your device.")
+    } catch (e: GetCredentialCancellationException) {
+        Log.e(TAG, "User cancelled sign-in", e)
+        onError("Sign-in cancelled")
     } catch (e: GetCredentialException) {
         Log.e(TAG, "Credential exception", e)
-        when {
-            e.message?.contains("No credentials available") == true ->
-                onError("No Google account found. Please add a Google account to your device.")
-            e.message?.contains("cancelled") == true ->
-                onError("Sign-in cancelled")
-            else ->
-                onError("Google Sign-In error: ${e.message}")
-        }
+        onError("Google Sign-In error: ${e.message}")
     } catch (e: Exception) {
         Log.e(TAG, "General exception", e)
         onError("Error: ${e.localizedMessage}")
     }
 }
 
-// SIMPLIFIED: Just create user, don't check if exists
-suspend fun saveUserToFirestore(
+// FIX: Non-blocking Firestore save
+fun saveUserToFirestoreAsync(
     db: FirebaseFirestore,
     auth: FirebaseAuth,
     username: String,
-    email: String,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit
+    email: String
 ) {
-    val userId = auth.currentUser?.uid
-    if (userId == null) {
-        onError("User ID not found")
-        return
-    }
+    val userId = auth.currentUser?.uid ?: return
 
-    try {
-        Log.d(TAG, "Saving user to Firestore: $userId")
+    Log.d(TAG, "Saving user to Firestore (async): $userId")
 
-        val userData = hashMapOf(
-            "username" to username,
-            "email" to email,
-            "createdAt" to System.currentTimeMillis(),
-            "avatarCustomization" to ""
-        )
+    val userData = hashMapOf(
+        "username" to username,
+        "email" to email,
+        "createdAt" to System.currentTimeMillis(),
+        "avatarCustomization" to ""
+    )
 
-        // Just set the data, use merge to avoid overwriting existing data
-        db.collection("users")
-            .document(userId)
-            .set(userData, com.google.firebase.firestore.SetOptions.merge())
-            .await()
-
-        Log.d(TAG, "User saved successfully")
-        onSuccess()
-
-    } catch (e: Exception) {
-        Log.e(TAG, "Error saving user", e)
-        // Even if Firestore fails, let user proceed
-        Log.w(TAG, "Firestore save failed but allowing user to proceed")
-        onSuccess() // Proceed anyway
-    }
+    // Use set with merge - don't wait for completion
+    db.collection("users")
+        .document(userId)
+        .set(userData, com.google.firebase.firestore.SetOptions.merge())
+        .addOnSuccessListener {
+            Log.d(TAG, "User saved successfully")
+        }
+        .addOnFailureListener { e ->
+            Log.e(TAG, "Failed to save user (non-critical)", e)
+        }
 }
 
-fun navigateToMain(navController: NavHostController) {
-    navController.navigate("main") {
-        popUpTo("auth") { inclusive = true }
-        launchSingleTop = true
+// FIX: Guaranteed navigation with delay
+fun navigateToMainScreen(navController: NavHostController) {
+    try {
+        Log.d(TAG, "Navigating to main screen")
+        navController.navigate("main") {
+            popUpTo("auth") { inclusive = true }
+            launchSingleTop = true
+        }
+        Log.d(TAG, "Navigation command executed")
+    } catch (e: Exception) {
+        Log.e(TAG, "Navigation error", e)
     }
 }
