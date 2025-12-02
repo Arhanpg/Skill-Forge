@@ -101,4 +101,11 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // AdMob (Google Mobile Ads)
+    implementation("com.google.android.gms:play-services-ads:23.0.0")
+
+    // Google Play Billing (In-App Purchases)
+    // Using -ktx version for better Kotlin Coroutines support
+    implementation("com.android.billingclient:billing-ktx:6.2.1")
 }

@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
+    <!-- Required for In-App Purchases -->
+    <uses-permission android:name="com.android.vending.BILLING" />
+    <!-- Required for AdMob (Android 13+) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
 
 
 
@@ -20,6 +24,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SkillForge">
+        <!--- ADMOB CONFIGURATION START -->
+        <!-- This is the Google Test App ID. REPLACE with your real ID only for Release builds -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
+        <!--- ADMOB CONFIGURATION END -->
         <activity
 
 

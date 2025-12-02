@@ -11,11 +11,14 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
 import com.example.skill_forge.navigation.NavGraph
 import com.example.skill_forge.ui.theme.SkillForgeTheme
+import com.google.android.gms.ads.MobileAds
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Initialize AdMob
+        MobileAds.initialize(this) {}
         setContent {
             SkillForgeTheme {
                 Surface(

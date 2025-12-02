@@ -1,15 +1,14 @@
 package com.example.skill_forge.ui.auth
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import android.util.Log
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,7 +17,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,7 +34,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
@@ -44,237 +50,422 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.security.MessageDigest
 import java.util.UUID
 
-private const val TAG = "AuthScreen"
-
-// DEFINED ENUM HERE TO FIX UNRESOLVED REFERENCE
+// Define Auth Modes to toggle between Login and Signup
 enum class AuthMode {
     LOGIN, SIGN_UP
 }
 
 @Composable
 fun AuthScreen(navController: NavHostController) {
-    // FIX: Connect explicitly to "skillforge" database
-    val db = remember { FirebaseFirestore.getInstance("skillforge") }
-    val auth = remember { FirebaseAuth.getInstance() }
+    val auth = FirebaseAuth.getInstance()
+    val db = FirebaseFirestore.getInstance()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // State
     var authMode by remember { mutableStateOf(AuthMode.LOGIN) }
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    // FIX: Explicitly typed to prevent inference error
-    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var errorMsg by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "bg")
-    val yOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(20000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ), label = "yOffset"
+    // Scroll State
+    val scrollState = rememberScrollState()
+
+    // Colors
+    val primaryCyan = Color(0xFF00BCD4)
+    val backgroundBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF0F2027),
+            Color(0xFF203A43),
+            Color(0xFF2C5364)
+        )
     )
 
-    val bgBrush = Brush.verticalGradient(
-        colors = listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)),
-        startY = yOffset
+    // Animation for zooming logo
+    val infiniteTransition = rememberInfiniteTransition(label = "zooming")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.05f, // Subtle zoom
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(bgBrush)
+            .background(backgroundBrush)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState) // ENABLE SCROLLING
                 .padding(24.dp)
-                .imePadding(),
+                .padding(top = 16.dp)
+                .imePadding(), // HANDLE KEYBOARD PADDING
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            val scale by infiniteTransition.animateFloat(
-                initialValue = 1f, targetValue = 1.05f,
-                animationSpec = infiniteRepeatable(tween(2000), RepeatMode.Reverse), label = "scale"
-            )
-
+            // --- LOGO SECTION ---
+            // Using your new logo without background
             Image(
                 painter = painterResource(id = R.drawable.skillforge_logo1),
-                contentDescription = "Logo",
-                modifier = Modifier.size(180.dp).scale(scale)
+                contentDescription = "Skill Forge Logo",
+                modifier = Modifier
+                    .size(220.dp) // Adjusted size for balance
+                    .scale(scale)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                "SKILL FORGE",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
+                "Master Your Skills Through Battle",
+                style = MaterialTheme.typography.bodyMedium,
+                color = primaryCyan,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 1.sp
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E272E).copy(alpha = 0.9f)),
-                shape = RoundedCornerShape(24.dp),
-                elevation = CardDefaults.cardElevation(8.dp),
-                modifier = Modifier.fillMaxWidth()
+            // --- TABS (LOGIN / REGISTER) ---
+            // A pill-shaped container to toggle modes
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.3f),
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .height(48.dp)
             ) {
-                Column(modifier = Modifier.padding(24.dp)) {
+                Row(
+                    modifier = Modifier.padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AuthTabButton(
+                        text = "Log In",
+                        selected = authMode == AuthMode.LOGIN,
+                        onClick = { authMode = AuthMode.LOGIN },
+                        modifier = Modifier.weight(1f)
+                    )
+                    AuthTabButton(
+                        text = "Sign Up",
+                        selected = authMode == AuthMode.SIGN_UP,
+                        onClick = { authMode = AuthMode.SIGN_UP },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.Black.copy(0.3f), CircleShape)
-                            .padding(4.dp)
-                    ) {
-                        AuthTab(
-                            text = "Login",
-                            selected = authMode == AuthMode.LOGIN,
-                            onClick = { authMode = AuthMode.LOGIN; errorMsg = null }
-                        )
-                        AuthTab(
-                            text = "Sign Up",
-                            selected = authMode == AuthMode.SIGN_UP,
-                            onClick = { authMode = AuthMode.SIGN_UP; errorMsg = null }
-                        )
-                    }
+            Spacer(modifier = Modifier.height(24.dp))
 
-                    Spacer(modifier = Modifier.height(24.dp))
+            // --- INPUT FIELDS ---
 
-                    AnimatedVisibility(visible = authMode == AuthMode.SIGN_UP) {
-                        Column {
-                            AuthTextField(value = username, onValueChange = { username = it }, label = "Username", icon = Icons.Default.Person)
-                            Spacer(modifier = Modifier.height(12.dp))
-                        }
-                    }
-
-                    AuthTextField(value = email, onValueChange = { email = it }, label = "Email", icon = Icons.Default.Email, keyboardType = KeyboardType.Email)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AuthTextField(value = password, onValueChange = { password = it }, label = "Password", icon = Icons.Default.Lock, isPassword = true)
-
+            // Username (Only shows when Sign Up is selected)
+            AnimatedVisibility(
+                visible = authMode == AuthMode.SIGN_UP,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    ModernAuthTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = "Username",
+                        icon = Icons.Default.Person,
+                        primaryColor = primaryCyan
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
 
-                    if (errorMsg != null) {
-                        Text(
-                            text = errorMsg!!,
-                            color = Color(0xFFFF5252),
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
+            ModernAuthTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = "Email",
+                icon = Icons.Default.Email,
+                primaryColor = primaryCyan,
+                keyboardType = KeyboardType.Email
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ModernAuthTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = "Password",
+                icon = Icons.Default.Lock,
+                primaryColor = primaryCyan,
+                isPassword = true,
+                imeAction = ImeAction.Done
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- ERROR MESSAGE ---
+            if (errorMsg.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xAAFF5252)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = errorMsg,
+                        color = Color.White,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // --- MAIN ACTION BUTTON ---
+            Button(
+                onClick = {
+                    if (email.isBlank() || password.isBlank()) {
+                        errorMsg = "Please fill in all fields"
+                        return@Button
+                    }
+                    if (authMode == AuthMode.SIGN_UP && username.isBlank()) {
+                        errorMsg = "Username is required for sign up"
+                        return@Button
                     }
 
-                    Button(
-                        onClick = {
-                            if (!isNetworkAvailable(context)) {
-                                errorMsg = "No internet connection."
-                                return@Button
-                            }
-                            loading = true
-                            scope.launch {
-                                try {
-                                    if (authMode == AuthMode.LOGIN) {
-                                        auth.signInWithEmailAndPassword(email, password).await()
-                                    } else {
-                                        val res = auth.createUserWithEmailAndPassword(email, password).await()
-                                        res.user?.let {
-                                            saveUserToFirestore(db, it.uid, username, email)
-                                        }
-                                    }
-                                    navigateToMainScreen(navController)
-                                } catch (e: Exception) {
-                                    errorMsg = e.message
+                    loading = true
+                    errorMsg = ""
+
+                    if (authMode == AuthMode.LOGIN) {
+                        // Login Logic
+                        auth.signInWithEmailAndPassword(email, password)
+                            .addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    loading = false
+                                    navigateToMain(navController)
+                                } else {
+                                    errorMsg = task.exception?.message ?: "Login failed"
                                     loading = false
                                 }
                             }
-                        },
-                        enabled = !loading,
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00BCD4))
-                    ) {
-                        if (loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                        else Text(if (authMode == AuthMode.LOGIN) "ENTER REALM" else "CREATE ACCOUNT", fontWeight = FontWeight.Bold)
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            loading = true
-                            scope.launch {
-                                signInWithGoogle(context, auth, db,
-                                    onSuccess = { navigateToMainScreen(navController) },
-                                    onError = { errorMsg = it; loading = false }
-                                )
+                    } else {
+                        // Sign Up Logic
+                        auth.createUserWithEmailAndPassword(email, password)
+                            .addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    saveUserToFirestore(
+                                        db, auth, username, email,
+                                        onSuccess = {
+                                            loading = false
+                                            navigateToMain(navController)
+                                        },
+                                        onError = { error ->
+                                            errorMsg = error
+                                            loading = false
+                                        }
+                                    )
+                                } else {
+                                    errorMsg = task.exception?.message ?: "Registration failed"
+                                    loading = false
+                                }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = BorderStroke(1.dp, Color.Gray) // This was the unresolved reference
-                    ) {
-                        Image(painter = painterResource(id = R.drawable.google_logo), contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Continue with Google")
                     }
+                },
+                enabled = !loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp), // Taller button
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = primaryCyan,
+                    disabledContainerColor = primaryCyan.copy(alpha = 0.5f)
+                ),
+                shape = CircleShape // Fully rounded pill shape
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        text = if (authMode == AuthMode.LOGIN) "LOGIN" else "CREATE ACCOUNT",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- DIVIDER ---
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.3f))
+                Text(
+                    text = "OR",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.3f))
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- GOOGLE SIGN IN ---
+            Button(
+                onClick = {
+                    scope.launch {
+                        loading = true
+                        errorMsg = ""
+                        signInWithGoogle(
+                            context = context,
+                            auth = auth,
+                            db = db,
+                            onSuccess = {
+                                loading = false
+                                navigateToMain(navController)
+                            },
+                            onError = { error ->
+                                errorMsg = error
+                                loading = false
+                            }
+                        )
+                    }
+                },
+                enabled = !loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    disabledContainerColor = Color.LightGray
+                ),
+                shape = CircleShape
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.google_logo),
+                        contentDescription = "Google Logo",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "Sign in with Google",
+                        color = Color.Black.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
                 }
             }
         }
     }
 }
 
+// --- CUSTOM UI COMPONENTS ---
+
 @Composable
-fun RowScope.AuthTab(text: String, selected: Boolean, onClick: () -> Unit) {
+fun AuthTabButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .weight(1f)
-            .height(40.dp)
+        modifier = modifier
+            .fillMaxHeight()
             .clip(CircleShape)
             .background(if (selected) Color(0xFF00BCD4) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (selected) Color.White else Color.Gray, fontWeight = FontWeight.Bold)
+        Text(
+            text = text,
+            color = if (selected) Color.White else Color.Gray,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AuthTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: ImageVector, isPassword: Boolean = false, keyboardType: KeyboardType = KeyboardType.Text) {
+fun ModernAuthTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    icon: ImageVector,
+    primaryColor: Color,
+    isPassword: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Next
+) {
     var passwordVisible by remember { mutableStateOf(false) }
+
     OutlinedTextField(
-        value = value, onValueChange = onValueChange,
+        value = value,
+        onValueChange = onValueChange,
         label = { Text(label) },
-        leadingIcon = { Icon(icon, null, tint = Color(0xFF00BCD4)) },
+        leadingIcon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (value.isNotEmpty()) primaryColor else Color.Gray
+            )
+        },
+        trailingIcon = if (isPassword) {
+            {
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(
+                        imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = "Toggle Password",
+                        tint = Color.Gray
+                    )
+                }
+            }
+        } else null,
         visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
-        trailingIcon = if (isPassword) { { IconButton(onClick = { passwordVisible = !passwordVisible }) { Icon(if(passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, null) } } } else null,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = keyboardType,
+            imeAction = imeAction
+        ),
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp), // More rounded corners
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color(0xFF00BCD4),
-            unfocusedBorderColor = Color.Gray,
             focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White
-        )
+            unfocusedTextColor = Color.White,
+            // Glassmorphism effect: slightly transparent white background
+            focusedContainerColor = Color.White.copy(alpha = 0.05f),
+            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+            focusedBorderColor = primaryColor,
+            unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+            focusedLabelColor = primaryColor,
+            unfocusedLabelColor = Color.Gray,
+            cursorColor = primaryColor
+        ),
+        singleLine = true
     )
 }
 
-fun saveUserToFirestore(db: FirebaseFirestore, userId: String, username: String, email: String) {
-    val userMap = hashMapOf("username" to username, "email" to email, "createdAt" to System.currentTimeMillis())
-    db.collection("users").document(userId).set(userMap, SetOptions.merge())
-}
+// --- HELPER FUNCTIONS ---
 
-suspend fun signInWithGoogle(context: Context, auth: FirebaseAuth, db: FirebaseFirestore, onSuccess: () -> Unit, onError: (String) -> Unit) {
+suspend fun signInWithGoogle(
+    context: Context,
+    auth: FirebaseAuth,
+    db: FirebaseFirestore,
+    onSuccess: () -> Unit,
+    onError: (String) -> Unit
+) {
     try {
         val credentialManager = CredentialManager.create(context)
         val rawNonce = UUID.randomUUID().toString()
@@ -283,7 +474,18 @@ suspend fun signInWithGoogle(context: Context, auth: FirebaseAuth, db: FirebaseF
         val digest = md.digest(bytes)
         val hashedNonce = digest.fold("") { str, it -> str + "%02x".format(it) }
 
-        val webClientId = context.getString(R.string.default_web_client_id)
+        val webClientId = try {
+            context.getString(
+                context.resources.getIdentifier(
+                    "default_web_client_id",
+                    "string",
+                    context.packageName
+                )
+            )
+        } catch (e: Exception) {
+            onError("Firebase configuration error. Check google-services.json")
+            return
+        }
 
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
@@ -292,30 +494,79 @@ suspend fun signInWithGoogle(context: Context, auth: FirebaseAuth, db: FirebaseF
             .setAutoSelectEnabled(false)
             .build()
 
-        val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
-        val result = credentialManager.getCredential(context, request)
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        val result = credentialManager.getCredential(request = request, context = context)
         val credential = result.credential
         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-        val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
+        val googleIdToken = googleIdTokenCredential.idToken
+        val firebaseCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
 
-        val authResult = auth.signInWithCredential(firebaseCredential).await()
-        if (authResult.user != null) {
-            saveUserToFirestore(db, authResult.user!!.uid, authResult.user!!.displayName ?: "Hero", authResult.user!!.email ?: "")
-            onSuccess()
+        auth.signInWithCredential(firebaseCredential)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val user = auth.currentUser
+                    user?.let {
+                        saveUserToFirestore(
+                            db = db,
+                            auth = auth,
+                            username = it.displayName ?: "User",
+                            email = it.email ?: "",
+                            onSuccess = onSuccess,
+                            onError = onError
+                        )
+                    } ?: onError("User data not found")
+                } else {
+                    onError("Authentication failed: ${task.exception?.message}")
+                }
+            }
+    } catch (e: GetCredentialException) {
+        when {
+            e.message?.contains("No credentials available") == true -> onError("Google Sign-In failed. Check configuration.")
+            e.message?.contains("cancelled") == true -> onError("Sign-in cancelled")
+            else -> onError("Google Sign-In error: ${e.message}")
         }
     } catch (e: Exception) {
-        Log.e(TAG, "Google Sign In Failed", e)
-        if (e is GetCredentialException) onError("Sign in cancelled") else onError(e.message ?: "Login Failed")
+        onError("Error: ${e.localizedMessage}")
     }
 }
 
-fun navigateToMainScreen(navController: NavHostController) {
-    navController.navigate("main") { popUpTo("auth") { inclusive = true } }
+fun saveUserToFirestore(
+    db: FirebaseFirestore,
+    auth: FirebaseAuth,
+    username: String,
+    email: String,
+    onSuccess: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val userId = auth.currentUser?.uid ?: return onError("User ID not found")
+
+    db.collection("users").document(userId).get()
+        .addOnSuccessListener { document ->
+            if (!document.exists()) {
+                db.collection("users").document(userId)
+                    .set(
+                        mapOf(
+                            "username" to username,
+                            "email" to email,
+                            "createdAt" to System.currentTimeMillis(),
+                            "avatarCustomization" to ""
+                        )
+                    )
+                    .addOnSuccessListener { onSuccess() }
+                    .addOnFailureListener { e -> onError("Error saving profile: ${e.message}") }
+            } else {
+                onSuccess()
+            }
+        }
+        .addOnFailureListener { e -> onError("Database error: ${e.message}") }
 }
 
-fun isNetworkAvailable(context: Context): Boolean {
-    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val network = cm.activeNetwork ?: return false
-    val capabilities = cm.getNetworkCapabilities(network) ?: return false
-    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+fun navigateToMain(navController: NavHostController) {
+    navController.navigate("main") {
+        popUpTo("auth") { inclusive = true }
+        launchSingleTop = true
+    }
 }
