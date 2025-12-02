@@ -14,7 +14,7 @@ fun NavGraph(navController: NavHostController) {
             AuthScreen(navController = navController)
         }
         composable("main") {
-            MainScreen()
+            MainScreen(navController = navController)
         }
     }
 }
