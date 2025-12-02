@@ -1,15 +1,22 @@
 package com.example.skill_forge.ui.main
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavHostController
 import com.example.skill_forge.ui.main.components.BottomNavigationBar
-import com.example.skill_forge.ui.main.screens.*
+import com.example.skill_forge.ui.main.screens.HomeScreen
+import com.example.skill_forge.ui.main.screens.ProfileScreen
+import com.example.skill_forge.ui.main.screens.StoreScreen
+
+import com.example.skill_forge.ui.main.screens.TaskScreen
 import com.google.firebase.auth.FirebaseAuth
 
 @Composable
@@ -43,7 +50,7 @@ fun MainScreen(navController: NavHostController) {
             Box(modifier = Modifier.padding(paddingValues)) {
                 when (selectedTab) {
                     0 -> HomeScreen(auth)
-                    1 -> TasksScreen()
+                    1 -> TaskScreen()
                     2 -> StoreScreen()
                     3 -> ProfileScreen(auth, navController)
                 }
