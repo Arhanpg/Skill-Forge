@@ -25,9 +25,9 @@ interface QuizApi {
 // ==================== SERVICE ====================
 object GeminiService {
 
-    // 🔴 TODO: PASTE YOUR NEW NGROK URL HERE (Must end with /)
+    
     // Example: "https://a1b2-34-56.ngrok-free.app/"
-    private const val BASE_URL = "https://ian-unmumbling-isobel.ngrok-free.dev/"
+    private const val BASE_URL = "https://a1b2-34-56.ngrok-free.app/"//update this with your new NGROK url here
 
     private val api: QuizApi by lazy {
         Retrofit.Builder()
