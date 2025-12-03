@@ -6,16 +6,15 @@ plugins {
 }
 
 android {
-    namespace = "com.example.skill_forge"
+    namespace = "com.skill_forge.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.skill_forge"
+        applicationId = "com.skill_forge.app"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -28,20 +27,23 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     kotlinOptions {
         jvmTarget = "11"
     }
+
     buildFeatures {
         compose = true
     }
 }
 
 dependencies {
-    // Core & UI
+    // --- Core & UI ---
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -50,50 +52,46 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    implementation("androidx.compose.material:material-icons-extended")
+    // Note: Use the Material 3 specific icons if possible, but this works for now
+    implementation("androidx.compose.material:material-icons-extended:1.7.5")
 
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.7")
+    // --- Navigation ---
+    implementation("androidx.navigation:navigation-compose:2.8.4") // Updated to latest stable
 
-    // Firebase
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.database)
-    implementation(libs.firebase.firestore)
-    implementation(libs.firebase.storage)
+    // --- Coil (Image Loading) ---
+    implementation("io.coil-kt:coil-compose:2.7.0") // Updated to latest stable
 
-    // Coil for image loading
-    implementation("io.coil-kt:coil-compose:2.5.0")
+    // --- Firebase ---
+    // Using BOM to manage versions
+    implementation(platform("com.google.firebase:firebase-bom:33.6.0"))
 
-    // Activity Result API
-    implementation("androidx.activity:activity-compose:1.8.2")
-
-    // Google Sign-In
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services.auth)
-    implementation(libs.googleid)
-    implementation("com.google.android.gms:play-services-auth:21.0.0")
-    // Firebase
-    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    // IMPORTANT FIX HERE: Removed "-ktx" suffixes.
+    // The main artifacts now contain the Kotlin extensions.
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-database")
+    implementation("com.google.firebase:firebase-storage")
+    implementation("com.google.firebase:firebase-analytics")
 
-
-    // CRITICAL: Use specific versions for Samsung compatibility
-    implementation("androidx.credentials:credentials:1.2.2")
-    implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
+    // --- Credential Manager & Google Sign-In ---
+    // Cleaned up duplicates. Using the explicit versions to ensure compatibility
+    // since we don't know what versions are inside your 'libs' catalog.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
 
-    // Coroutines for timeout handling
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    // --- Coroutines ---
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
+    // --- Ads ---
+    implementation("com.google.android.gms:play-services-ads:23.5.0")
+
+    // --- AI (Gemini) ---
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-    // Google Sign-In with Credential Manager
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.0")
-    implementation("androidx.credentials:credentials:1.2.2")
-    implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
-    implementation("com.google.firebase:firebase-auth-ktx")
-    implementation("com.google.firebase:firebase-firestore-ktx")
-    // Testing
+
+    // --- Testing ---
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -101,11 +99,4 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-
-    // AdMob (Google Mobile Ads)
-    implementation("com.google.android.gms:play-services-ads:23.0.0")
-
-    // Google Play Billing (In-App Purchases)
-    // Using -ktx version for better Kotlin Coroutines support
-    implementation("com.android.billingclient:billing-ktx:6.2.1")
 }
