@@ -10,7 +10,6 @@ import com.google.gson.Gson
 // ==================== DATA MODELS ====================
 data class ServerRequest(val topic: String)
 
-// Now MUST match Python → List of objects
 data class QuizResponse(
     val question: String,
     val options: List<String>,
@@ -19,8 +18,6 @@ data class QuizResponse(
 
 // ==================== API INTERFACE ====================
 interface QuizApi {
-
-    // Expecting a LIST (array)
     @POST("generate-quiz")
     suspend fun getQuiz(@Body request: ServerRequest): List<QuizResponse>
 }
@@ -28,7 +25,9 @@ interface QuizApi {
 // ==================== SERVICE ====================
 object GeminiService {
 
-    private const val BASE_URL = "https://ian-unmumbling-isobel.ngrok-free.dev"
+    // 🔴 TODO: PASTE YOUR NEW NGROK URL HERE (Must end with /)
+    // Example: "https://a1b2-34-56.ngrok-free.app/"
+    private const val BASE_URL = "https://ian-unmumbling-isobel.ngrok-free.dev/"
 
     private val api: QuizApi by lazy {
         Retrofit.Builder()
@@ -40,18 +39,25 @@ object GeminiService {
 
     suspend fun generateQuizQuestion(topic: String): String {
         return try {
+            Log.d("GeminiService", "Requesting quiz for: $topic")
+
+            // 1. Network Call
             val responseList = api.getQuiz(ServerRequest(topic))
 
-            // Convert entire list → JSON string
+            // 2. Success Check
+            Log.d("GeminiService", "Received ${responseList.size} questions")
+
+            // 3. Convert List Object back to JSON String (if your UI expects a String)
             Gson().toJson(responseList)
 
         } catch (e: Exception) {
             Log.e("GeminiService", "Server Error", e)
+            // Return valid JSON error structure so the UI shows the error cleanly
             """
             [
                 {
-                    "question": "Error connecting to Server. Is Colab running?",
-                    "options": ["Check URL", "Check Colab", "Check Wifi", "Retry"],
+                    "question": "Connection Failed: ${e.message}",
+                    "options": ["Check URL in Code", "Check Colab", "Check Internet", "Retry"],
                     "correctIndex": 0
                 }
             ]
