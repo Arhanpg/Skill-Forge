@@ -43,7 +43,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.vertexai.vertexAI
+import com.skill_forge.app.ui.main.screens.GeminiService
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -781,36 +781,39 @@ class HomeViewModel : ViewModel() {
 suspend fun generateFirebaseQuiz(summary: String): List<QuizQuestion>? {
     return withContext(Dispatchers.IO) {
         try {
-            val generativeModel = Firebase.vertexAI.generativeModel("gemini-1.5-flash")
+            // ❌ REMOVE THE BROKEN FIREBASE CODE:
+            // val generativeModel = Firebase.vertexAI.generativeModel("gemini-1.5-flash")
 
-            val prompt = """
-                Create 3 multiple choice questions based on this text: "$summary".
-                Format exactly like this (3 lines only):
-                Question|Option1|Option2|Option3|CorrectIndex
-                
-                Example:
-                What is 5+5?|8|10|12|1
-            """.trimIndent()
+            // ✅ USE YOUR NEW WORKING SERVICE INSTEAD:
+            // We reuse the quiz generation logic from GeminiService
+            val jsonString = GeminiService.generateQuizQuestion(summary)
 
-            val response = generativeModel.generateContent(prompt)
-            var text = response.text ?: return@withContext null
+            // Because the prompt in GeminiService asks for ONE question in JSON format,
+            // we need to parse it slightly differently here to fit your List<QuizQuestion> return type.
+            // For now, let's wrap the single result into a list.
 
-            text = text.replace("```", "").replace("csv", "").trim()
+            val cleanJson = jsonString.replace("```json", "").replace("```", "").trim()
+            val jsonObject = org.json.JSONObject(cleanJson)
 
-            val questions = text.split("\n").mapNotNull { line ->
-                if(line.isBlank()) return@mapNotNull null
-                val parts = line.split("|")
-                if (parts.size >= 5) {
-                    QuizQuestion(
-                        question = parts[0].trim(),
-                        options = listOf(parts[1].trim(), parts[2].trim(), parts[3].trim()),
-                        correctIndex = parts[4].trim().toIntOrNull() ?: 0
-                    )
-                } else null
+            val questionText = jsonObject.getString("question")
+            val correctIdx = jsonObject.getInt("correctIndex")
+            val optionsArray = jsonObject.getJSONArray("options")
+            val optionsList = mutableListOf<String>()
+            for (i in 0 until optionsArray.length()) {
+                optionsList.add(optionsArray.getString(i))
             }
-            if (questions.isEmpty()) null else questions
+
+            // Return a list containing this single question
+            listOf(
+                QuizQuestion(
+                    question = questionText,
+                    options = optionsList,
+                    correctIndex = correctIdx
+                )
+            )
+
         } catch (e: Exception) {
-            Log.e("AI_QUIZ", "Vertex AI Error", e)
+            android.util.Log.e("AI_QUIZ", "Gemini Service Error", e)
             null
         }
     }

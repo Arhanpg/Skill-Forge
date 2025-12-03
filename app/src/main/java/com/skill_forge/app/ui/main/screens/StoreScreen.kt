@@ -30,22 +30,29 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.skill_forge.app.ui.main.models.AdMobHelper
+import com.android.billingclient.api.*
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.skill_forge.app.R
+import com.skill_forge.app.ui.main.models.AdMobHelper
+import kotlinx.coroutines.launch
+
 // --- Data Models for UI ---
 data class CoinPack(
     val amount: Int,
-    val price: String,
+    val title: String,
+    val productId: String, // Matches Google Play Console ID
+    val price: String,     // Display price (e.g., "₹99" or "FREE")
     val isBestValue: Boolean = false,
-    val isAd: Boolean = false
+    val isAd: Boolean = false,
+    val productDetails: ProductDetails? = null
 )
 
 @Composable
 fun StoreScreen() {
     val context = LocalContext.current
-
     // Initialize AdMob Helper
     val adMobHelper = remember { AdMobHelper(context) }
 
@@ -55,26 +62,144 @@ fun StoreScreen() {
     val userId = auth.currentUser?.uid
 
     // Persistent Balance State
-    // We default to 0 (or a loading state) until Firestore returns the real value
-    var balance by remember { mutableIntStateOf(500) }
+    var balance by remember { mutableIntStateOf(0) }
 
-    // Sync Balance with Firestore
+    // Product List State
+    val availablePacks = remember { mutableStateListOf<CoinPack>() }
+
+    // Define your Product IDs from Google Play Console here
+    val productIds = mapOf(
+        "coins_200" to 200,
+        "coins_500" to 500,
+        "coins_1000" to 1000
+    )
+
+    // Function to Add Coins to Firestore
+    fun addCoinsToUser(amount: Int) {
+        if (userId != null) {
+            val updateData = hashMapOf<String, Any>(
+                "coins" to FieldValue.increment(amount.toLong())
+            )
+            db.collection("users").document(userId)
+                .set(updateData, SetOptions.merge())
+                .addOnSuccessListener {
+                    Toast.makeText(context, "Added $amount coins!", Toast.LENGTH_SHORT).show()
+                }
+                .addOnFailureListener {
+                    Toast.makeText(context, "Sync Error: ${it.message}", Toast.LENGTH_SHORT).show()
+                }
+        } else {
+            balance += amount
+            Toast.makeText(context, "Guest: Added $amount coins", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // --- BILLING STATE ---
+    // We use a mutable state to hold the connected client so UI can use it
+    var billingClientState by remember { mutableStateOf<BillingClient?>(null) }
+
+    DisposableEffect(Unit) {
+        var client: BillingClient? = null
+
+        val purchasesUpdatedListener = PurchasesUpdatedListener { billingResult, purchases ->
+            if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
+                for (purchase in purchases) {
+                    if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
+                        // 1. Consume the item
+                        val consumeParams = ConsumeParams.newBuilder()
+                            .setPurchaseToken(purchase.purchaseToken)
+                            .build()
+
+                        client?.consumeAsync(consumeParams) { consumeResult, _ ->
+                            if (consumeResult.responseCode == BillingClient.BillingResponseCode.OK) {
+                                // 2. Find which pack was bought
+                                var coinsReward = 0
+                                for (sku in purchase.products) {
+                                    coinsReward += productIds[sku] ?: 0
+                                }
+                                if (coinsReward > 0) {
+                                    addCoinsToUser(coinsReward)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (billingResult.responseCode == BillingClient.BillingResponseCode.USER_CANCELED) {
+                Toast.makeText(context, "Purchase Canceled", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Initialize Client
+        client = BillingClient.newBuilder(context)
+            .setListener(purchasesUpdatedListener)
+            .enablePendingPurchases()
+            .build()
+
+        billingClientState = client
+
+        client.startConnection(object : BillingClientStateListener {
+            override fun onBillingSetupFinished(billingResult: BillingResult) {
+                if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
+                    // Query Products
+                    val queryProductDetailsParams = QueryProductDetailsParams.newBuilder()
+                        .setProductList(
+                            productIds.keys.map {
+                                QueryProductDetailsParams.Product.newBuilder()
+                                    .setProductId(it)
+                                    .setProductType(BillingClient.ProductType.INAPP)
+                                    .build()
+                            }
+                        )
+                        .build()
+
+                    client?.queryProductDetailsAsync(queryProductDetailsParams) { result, productDetailsList ->
+                        if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                            availablePacks.clear()
+
+                            // Add Ad Option First
+                            availablePacks.add(
+                                CoinPack(10, "Watch AD", "ad_reward", "FREE", isAd = true)
+                            )
+
+                            // Add Real Products
+                            productDetailsList.forEach { details ->
+                                val amount = productIds[details.productId] ?: 0
+                                val formattedPrice = details.oneTimePurchaseOfferDetails?.formattedPrice ?: "N/A"
+
+                                availablePacks.add(
+                                    CoinPack(
+                                        amount = amount,
+                                        title = details.name,
+                                        productId = details.productId,
+                                        price = formattedPrice,
+                                        isBestValue = amount == 500,
+                                        productDetails = details
+                                    )
+                                )
+                            }
+                            availablePacks.sortBy { it.amount }
+                        }
+                    }
+                }
+            }
+            override fun onBillingServiceDisconnected() {
+                // Logic to retry connection could go here
+            }
+        })
+
+        onDispose {
+            client?.endConnection()
+        }
+    }
+
+    // --- FIRESTORE SYNC ---
     LaunchedEffect(userId) {
         if (userId != null) {
             val docRef = db.collection("users").document(userId)
             docRef.addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    return@addSnapshotListener
-                }
+                if (e != null) return@addSnapshotListener
                 if (snapshot != null && snapshot.exists()) {
-                    // Get 'coins' field, defaulting to 500 if it doesn't exist yet
-                    val remoteBalance = snapshot.getLong("coins")?.toInt()
-                    if (remoteBalance != null) {
-                        balance = remoteBalance
-                    } else {
-                        // Initialize field if missing
-                        docRef.update("coins", 500)
-                    }
+                    balance = snapshot.getLong("coins")?.toInt() ?: 0
                 }
             }
         }
@@ -86,60 +211,58 @@ fun StoreScreen() {
     )
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(darkBackground)
+        modifier = Modifier.fillMaxSize().background(darkBackground)
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            // --- HEADER ---
-            item {
-                StoreHeader(balance = balance)
-            }
+            item { StoreHeader(balance = balance) }
 
-            // --- SECTION: COIN SHOP ---
             item {
                 SectionTitle(title = "Top Up EduCoins", icon = Icons.Default.Add)
+
+                if (availablePacks.size <= 1) {
+                    Box(modifier = Modifier.fillMaxWidth().height(190.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color(0xFFFFD700))
+                    }
+                }
+
                 CoinShopRow(
+                    packs = availablePacks,
                     onAdClick = {
                         val activity = context as? Activity
-                        if (activity != null) {
-                            if (adMobHelper.isAdReady()) {
-                                adMobHelper.showRewardedAd(activity) { rewardAmount ->
-                                    // SUCCESS: Ad watched completely
-                                    // Calculate new balance
-                                    val newBalance = balance + rewardAmount
-
-                                    // Update Firestore (Listener will update UI)
-                                    if (userId != null) {
-                                        db.collection("users").document(userId)
-                                            .update("coins", newBalance)
-                                            .addOnSuccessListener {
-                                                Toast.makeText(context, "Earned $rewardAmount coins!", Toast.LENGTH_SHORT).show()
-                                            }
-                                            .addOnFailureListener {
-                                                Toast.makeText(context, "Failed to save coins", Toast.LENGTH_SHORT).show()
-                                            }
-                                    } else {
-                                        // Fallback for guest/offline (local only)
-                                        balance += rewardAmount
-                                        Toast.makeText(context, "Earned $rewardAmount coins! (Local)", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            } else {
-                                Toast.makeText(context, "Ad loading... try again in a moment", Toast.LENGTH_SHORT).show()
+                        if (activity != null && adMobHelper.isAdReady()) {
+                            adMobHelper.showRewardedAd(activity) { rewardAmount ->
+                                val amount = if (rewardAmount > 0) rewardAmount else 10
+                                addCoinsToUser(amount)
                             }
+                        } else {
+                            Toast.makeText(context, "Ad loading...", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onPurchaseClick = { pack ->
-                        Toast.makeText(context, "Purchase ${pack.price}", Toast.LENGTH_SHORT).show()
+                        if (pack.productDetails != null) {
+                            val client = billingClientState
+                            if (client != null && client.isReady) {
+                                val productDetailsParamsList = listOf(
+                                    BillingFlowParams.ProductDetailsParams.newBuilder()
+                                        .setProductDetails(pack.productDetails)
+                                        .build()
+                                )
+                                val flowParams = BillingFlowParams.newBuilder()
+                                    .setProductDetailsParamsList(productDetailsParamsList)
+                                    .build()
+
+                                client.launchBillingFlow(context as Activity, flowParams)
+                            } else {
+                                Toast.makeText(context, "Store not ready yet", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 )
             }
 
-            // --- SECTION: POWER UPS ---
             item {
                 Spacer(modifier = Modifier.height(32.dp))
                 SectionTitle(title = "Power Ups", icon = Icons.Default.Bolt)
@@ -149,11 +272,18 @@ fun StoreScreen() {
                     description = "Protect your streak for one day!",
                     price = "500 Coins",
                     iconRes = R.drawable.ic_streak_freeze,
-                    colorTheme = Color(0xFF4FC3F7)
+                    colorTheme = Color(0xFF4FC3F7),
+                    onBuyClick = {
+                        if (userId != null && balance >= 500) {
+                            addCoinsToUser(-500)
+                            Toast.makeText(context, "Streak Freeze Purchased!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Insufficient Coins", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
             }
 
-            // --- SECTION: VOUCHERS ---
             item {
                 Spacer(modifier = Modifier.height(32.dp))
                 SectionTitle(title = "Vouchers", icon = Icons.Default.Star)
@@ -202,7 +332,7 @@ fun StoreHeader(balance: Int) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.ic_coin),
+                        painter = painterResource(id = R.drawable.ic_coin_outline),
                         contentDescription = null,
                         tint = Color.Unspecified,
                         modifier = Modifier.size(20.dp)
@@ -222,16 +352,10 @@ fun StoreHeader(balance: Int) {
 
 @Composable
 fun CoinShopRow(
+    packs: List<CoinPack>,
     onAdClick: () -> Unit,
     onPurchaseClick: (CoinPack) -> Unit
 ) {
-    val packs = listOf(
-        CoinPack(10, "Watch AD", isAd = true),
-        CoinPack(200, "₹49"),
-        CoinPack(500, "₹99", isBestValue = true),
-        CoinPack(1000, "₹189")
-    )
-
     LazyRow(
         contentPadding = PaddingValues(horizontal = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -240,7 +364,11 @@ fun CoinShopRow(
             CoinCard(
                 pack = pack,
                 onClick = {
-                    if (pack.isAd) onAdClick() else onPurchaseClick(pack)
+                    if (pack.isAd) {
+                        onAdClick()
+                    } else {
+                        onPurchaseClick(pack)
+                    }
                 }
             )
         }
@@ -271,16 +399,12 @@ fun CoinCard(pack: CoinPack, onClick: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Header
                 Text("COINS", color = textColor.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
-                // Main Icon
-                Image(painterResource(id = R.drawable.ic_coin), null, modifier = Modifier.size(64.dp))
+                Image(painterResource(id = R.drawable.ic_coin_outline), null, modifier = Modifier.size(64.dp))
 
-                // Amount
                 Text("${pack.amount}", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = textColor)
 
-                // Price
                 Text(pack.price, fontWeight = FontWeight.Bold, color = textColor, fontSize = 16.sp)
             }
             if (pack.isBestValue) {
@@ -293,7 +417,14 @@ fun CoinCard(pack: CoinPack, onClick: () -> Unit) {
 }
 
 @Composable
-fun UtilityCard(title: String, description: String, price: String, iconRes: Int, colorTheme: Color) {
+fun UtilityCard(
+    title: String,
+    description: String,
+    price: String,
+    iconRes: Int,
+    colorTheme: Color,
+    onBuyClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(100.dp),
         shape = RoundedCornerShape(16.dp),
@@ -308,7 +439,12 @@ fun UtilityCard(title: String, description: String, price: String, iconRes: Int,
                 Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(description, color = Color.Gray, fontSize = 12.sp, lineHeight = 14.sp)
             }
-            Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = colorTheme), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+            Button(
+                onClick = onBuyClick,
+                colors = ButtonDefaults.buttonColors(containerColor = colorTheme),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp)
+            ) {
                 Text(price, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }

@@ -72,7 +72,7 @@ dependencies {
     implementation("com.google.firebase:firebase-database")
     implementation("com.google.firebase:firebase-storage")
     implementation("com.google.firebase:firebase-analytics")
-    implementation("com.google.firebase:firebase-vertexai:16.0.2")
+
     // --- Credential Manager & Google Sign-In ---
     // Cleaned up duplicates. Using the explicit versions to ensure compatibility
     // since we don't know what versions are inside your 'libs' catalog.
@@ -87,7 +87,7 @@ dependencies {
 
     // --- Ads ---
     implementation("com.google.android.gms:play-services-ads:23.5.0")
-
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
     // --- AI (Gemini) ---
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     implementation(libs.androidx.compose.foundation)
@@ -102,4 +102,9 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
 }
