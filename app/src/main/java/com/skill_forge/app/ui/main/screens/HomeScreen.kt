@@ -89,11 +89,6 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Ensure data listeners are active
-    LaunchedEffect(Unit) {
-        viewModel.startListening()
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -124,7 +119,7 @@ fun HomeScreen(
                         sliderValue = viewModel.selectedDurationMin.value,
                         onSliderChange = { viewModel.selectedDurationMin.value = it },
                         onSubTaskToggle = { subId -> viewModel.toggleSubTaskSelection(subId) },
-                        onStart = { viewModel.startSession(context) },
+                        onStart = { viewModel.startSession() },
                         primaryColor = cyberBlue
                     )
                     SessionState.RUNNING -> RunningState(
@@ -255,10 +250,9 @@ fun IdleState(
                 .padding(8.dp)
         ) {
             if (activeQuests.isEmpty()) {
-                item { Text("No active quests. Add one in Tasks tab!", color = Color.Gray, modifier = Modifier.padding(8.dp)) }
+                item { Text("No active quests. Add one in Tasks tab!", color = Color.Gray) }
             }
             items(activeQuests) { quest ->
-                // Show quest only if it has incomplete subtasks
                 if (quest.subQuests.any { !it.isCompleted }) {
                     Text(quest.title, color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(vertical = 4.dp))
                     quest.subQuests.filter { !it.isCompleted }.forEach { sub ->
@@ -286,10 +280,9 @@ fun IdleState(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Start Button
         Button(
             onClick = onStart,
-            enabled = selectedSubIds.isNotEmpty(),
+            enabled = selectedSubIds.isNotEmpty(), // DISABLE IF NO TASK SELECTED
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
@@ -300,9 +293,9 @@ fun IdleState(
             ),
             shape = RoundedCornerShape(28.dp)
         ) {
-            Icon(Icons.Default.PlayArrow, null, tint = if(selectedSubIds.isNotEmpty()) Color.Black else Color.Gray)
+            Icon(Icons.Default.PlayArrow, null, tint = if(selectedSubIds.isNotEmpty()) Color.Black else Color.White)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("START BATTLE", color = if(selectedSubIds.isNotEmpty()) Color.Black else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("START BATTLE", color = if(selectedSubIds.isNotEmpty()) Color.Black else Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         }
     }
 }
@@ -393,6 +386,7 @@ fun CompletionSelectState(
                 .padding(8.dp)
         ) {
             items(quests) { quest ->
+                // Only show subtasks that were originally selected for this session
                 val relevantSubtasks = quest.subQuests.filter { selectedSubIds.contains(it.id) }
 
                 if (relevantSubtasks.isNotEmpty()) {
@@ -548,7 +542,7 @@ fun RewardState(xp: Int, coins: Int, primaryColor: Color, onClaim: () -> Unit) {
             colors = ButtonDefaults.buttonColors(containerColor = Color.Green),
             modifier = Modifier.fillMaxWidth().height(56.dp).shadow(12.dp, RoundedCornerShape(28.dp), spotColor = Color.Green)
         ) {
-            Text("CLAIM REWARDS & HOME", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("CLAIM REWARDS", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         }
     }
 }
@@ -581,8 +575,6 @@ class HomeViewModel : ViewModel() {
     private var timerJob: Job? = null
     private var pauseJob: Job? = null
     private var lastBackgroundTimestamp = 0L
-    private var profileListener: ListenerRegistration? = null
-    private var questListener: ListenerRegistration? = null
 
     // Quiz & Reward State
     val sessionSummary = mutableStateOf("")
@@ -591,38 +583,20 @@ class HomeViewModel : ViewModel() {
     val currentXpReward = mutableIntStateOf(0)
     val currentCoinReward = mutableIntStateOf(0)
 
-    fun startListening() {
-        if (userId.isEmpty()) return
-
-        // Real-time Profile Updates
-        profileListener?.remove()
-        profileListener = db.collection("users").document(userId)
-            .addSnapshotListener { snapshot, e ->
-                if (snapshot != null && snapshot.exists()) {
-                    // Manually handle nulls to avoid crashes
-                    val xp = snapshot.getLong("xp")?.toInt() ?: 0
-                    val coins = snapshot.getLong("coins")?.toInt() ?: 0
-                    val streak = snapshot.getLong("streakDays")?.toInt() ?: 0
-                    userProfile.value = snapshot.toObject(UserProfile::class.java)?.copy(
-                        xp = xp, coins = coins, streakDays = streak
-                    )
-                }
-            }
-
-        // Real-time Quest Updates
-        questListener?.remove()
-        questListener = db.collection("users").document(userId).collection("quests")
-            .whereEqualTo("status", 0).addSnapshotListener { snapshot, e ->
-                if (snapshot != null) {
-                    activeQuests.value = snapshot.toObjects(Quest::class.java)
-                }
-            }
+    init {
+        loadData()
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        profileListener?.remove()
-        questListener?.remove()
+    private fun loadData() {
+        if (userId.isNotEmpty()) {
+            db.collection("users").document(userId).get().addOnSuccessListener {
+                userProfile.value = it.toObject(UserProfile::class.java)
+            }
+            db.collection("users").document(userId).collection("quests")
+                .whereEqualTo("status", 0).get().addOnSuccessListener {
+                    activeQuests.value = it.toObjects(Quest::class.java)
+                }
+        }
     }
 
     fun toggleSubTaskSelection(subId: String) {
@@ -631,15 +605,11 @@ class HomeViewModel : ViewModel() {
         selectedSubQuestIds.value = current
     }
 
-    fun startSession(context: Context) {
-        if (selectedSubQuestIds.value.isEmpty()) {
-            Toast.makeText(context, "Select at least one sub-task!", Toast.LENGTH_SHORT).show()
-            return
-        }
+    fun startSession() {
         val duration = (selectedDurationMin.value.toInt() * 60).toLong()
         totalTimeSeconds.longValue = duration
         timeRemaining.longValue = duration
-        pauseAllowanceSeconds.longValue = duration / 12
+        pauseAllowanceSeconds.longValue = duration / 12 // Max pause is 1/12 of total time
         focusSeconds.longValue = 0
         distractionSeconds.longValue = 0
         state.value = SessionState.RUNNING
@@ -656,6 +626,7 @@ class HomeViewModel : ViewModel() {
                 focusSeconds.longValue++
             }
             if (timeRemaining.longValue <= 0) {
+                // Session Ends
                 state.value = SessionState.COMPLETION_SELECT
             }
         }
@@ -664,13 +635,15 @@ class HomeViewModel : ViewModel() {
     fun pauseSession() {
         state.value = SessionState.PAUSED
         timerJob?.cancel()
+
+        // Start Pause Countdown
         pauseJob = viewModelScope.launch {
             while(pauseAllowanceSeconds.longValue > 0 && state.value == SessionState.PAUSED) {
                 delay(1000)
                 pauseAllowanceSeconds.longValue--
             }
             if (pauseAllowanceSeconds.longValue <= 0 && state.value == SessionState.PAUSED) {
-                resumeSession()
+                resumeSession() // Auto resume if pause time exceeded
             }
         }
     }
@@ -684,6 +657,8 @@ class HomeViewModel : ViewModel() {
         state.value = SessionState.IDLE
         timerJob?.cancel()
         pauseJob?.cancel()
+        focusSeconds.longValue = 0
+        distractionSeconds.longValue = 0
         selectedSubQuestIds.value = emptySet()
     }
 
@@ -697,6 +672,7 @@ class HomeViewModel : ViewModel() {
         state.value = SessionState.REPORTING
     }
 
+    // --- LIFECYCLE HANDLERS ---
     fun onAppBackgrounded() {
         lastBackgroundTimestamp = System.currentTimeMillis()
     }
@@ -705,11 +681,16 @@ class HomeViewModel : ViewModel() {
         if (state.value == SessionState.RUNNING && lastBackgroundTimestamp != 0L) {
             val now = System.currentTimeMillis()
             val diffSeconds = (now - lastBackgroundTimestamp) / 1000
+
             if (diffSeconds > 0) {
+                // Add to distraction time
                 distractionSeconds.longValue += diffSeconds
+                // Reduce timer by distraction amount (time kept ticking)
                 timeRemaining.longValue = (timeRemaining.longValue - diffSeconds).coerceAtLeast(0)
             }
+
             lastBackgroundTimestamp = 0L
+
             if (timeRemaining.longValue <= 0) {
                 state.value = SessionState.COMPLETION_SELECT
                 timerJob?.cancel()
@@ -725,7 +706,7 @@ class HomeViewModel : ViewModel() {
                 generatedQuiz.value = quiz
                 state.value = SessionState.QUIZ
             } else {
-                Toast.makeText(context, "AI Generation Failed. Try again.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "AI Generation Failed. Try specific keywords.", Toast.LENGTH_SHORT).show()
             }
             isGeneratingQuiz.value = false
         }
@@ -735,38 +716,45 @@ class HomeViewModel : ViewModel() {
         val activeMins = focusSeconds.longValue / 60
         val baseXp = activeMins * 10
         val quizBonus = score * 50
+
         currentXpReward.intValue = (baseXp + quizBonus).toInt()
         currentCoinReward.intValue = activeMins.toInt()
 
         // Update DB
-        val currentXp = userProfile.value?.xp ?: 0
-        val currentCoins = userProfile.value?.coins ?: 0
+        val newXp = (userProfile.value?.xp ?: 0) + currentXpReward.intValue
+        val newCoins = (userProfile.value?.coins ?: 0) + currentCoinReward.intValue
 
-        val newXp = currentXp + currentXpReward.intValue
-        val newCoins = currentCoins + currentCoinReward.intValue
-
+        // UPDATE SPECIFIC SUBTASKS IN FIRESTORE
         viewModelScope.launch(Dispatchers.IO) {
             val batch = db.batch()
 
+            // Loop through all active quests
             activeQuests.value.forEach { quest ->
-                val relevantSubs = quest.subQuests.filter { completedSubQuestIds.value.contains(it.id) }
-                if (relevantSubs.isNotEmpty()) {
+                // Check if this quest has any subtasks that were marked as completed
+                val needsUpdate = quest.subQuests.any { completedSubQuestIds.value.contains(it.id) }
+
+                if (needsUpdate) {
                     val updatedSubQuests = quest.subQuests.map {
                         if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
                     }
                     val isQuestDone = updatedSubQuests.all { it.isCompleted }
+
                     val ref = db.collection("users").document(userId).collection("quests").document(quest.id)
                     batch.update(ref, "subQuests", updatedSubQuests)
-                    if (isQuestDone) batch.update(ref, "status", 1)
+                    if (isQuestDone) {
+                        batch.update(ref, "status", 1)
+                    }
                 }
             }
 
+            // Commit Quest Updates
             try {
                 batch.commit().await()
+                // Update User Stats
                 db.collection("users").document(userId)
                     .set(mapOf("xp" to newXp, "coins" to newCoins), SetOptions.merge())
             } catch (e: Exception) {
-                Log.e("HomeViewModel", "Error saving", e)
+                Log.e("HomeViewModel", "Error saving progress", e)
             }
         }
 
@@ -780,6 +768,7 @@ class HomeViewModel : ViewModel() {
         selectedSubQuestIds.value = emptySet()
         completedSubQuestIds.value = emptySet()
         sessionSummary.value = ""
+        loadData()
     }
 }
 
@@ -793,33 +782,28 @@ suspend fun generateAIQuiz(summary: String): List<QuizQuestion>? {
                 apiKey = GEMINI_API_KEY
             )
 
+            // FIX: Improved prompt to prevent Markdown formatting issues
             val prompt = """
-                Based on this text: "$summary"
-                Create 3 simple multiple choice questions.
-                Output format:
-                Question 1|Option A|Option B|Option C|CorrectIndex (0, 1, or 2)
-                Question 2|Option A|Option B|Option C|CorrectIndex
-                Question 3|Option A|Option B|Option C|CorrectIndex
-                
+                Generate 3 multiple choice questions based on: "$summary".
+                Strictly follow this format: Question|Option1|Option2|Option3|CorrectIndex(0-2)
                 Example:
-                What color is the sky?|Blue|Green|Red|0
-                Do not include headers, markdown, or code blocks. Just the 3 lines.
+                What is 2+2?|3|4|5|1
+                Do NOT use markdown, code blocks, or bold text. Plain text only.
             """.trimIndent()
 
             val response = generativeModel.generateContent(prompt)
-            val text = response.text ?: return@withContext null
+            var text = response.text ?: return@withContext null
 
-            // Clean response
-            val cleanText = text.replace("```", "").replace("csv", "").trim()
+            // CLEAN UP: Remove code blocks if AI still adds them
+            text = text.replace("```csv", "").replace("```", "").trim()
 
-            val questions = cleanText.split("\n").mapNotNull { line ->
-                if(line.isBlank()) return@mapNotNull null
+            val questions = text.split("\n").mapNotNull { line ->
                 val parts = line.split("|")
-                if (parts.size >= 5) {
+                if (parts.size == 5) {
                     QuizQuestion(
-                        question = parts[0].trim(),
-                        options = listOf(parts[1].trim(), parts[2].trim(), parts[3].trim()),
-                        correctIndex = parts[4].trim().toIntOrNull() ?: 0
+                        parts[0].trim(),
+                        listOf(parts[1].trim(), parts[2].trim(), parts[3].trim()),
+                        parts[4].trim().toIntOrNull() ?: 0
                     )
                 } else null
             }

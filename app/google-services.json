@@ -1,0 +1,130 @@
+{
+  "project_info": {
+    "project_number": "325857612060",
+    "firebase_url": "https://skill-forge-2a072-default-rtdb.firebaseio.com",
+    "project_id": "skill-forge-2a072",
+    "storage_bucket": "skill-forge-2a072.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:325857612060:android:140aed84af718bd0cbead9",
+        "android_client_info": {
+          "package_name": "com.example.skill_forge"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "325857612060-j56i1ooqshgndspem5eced27fheoi7f7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.skill_forge",
+            "certificate_hash": "bb15ae367b890823aae10888bebc7226d4b5d3c8"
+          }
+        },
+        {
+          "client_id": "325857612060-jcbho4tk7l7vjrgbjp37mnginbief796.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.skill_forge",
+            "certificate_hash": "16779aa3496e7a1ce85318ceee06f5945ba8e8a9"
+          }
+        },
+        {
+          "client_id": "325857612060-uc1ed3qitjh4p2osvc4p24domeip04b1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_QHy4Fn4QuCPu7GZKT2c8jKmCE_WPX_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "325857612060-uc1ed3qitjh4p2osvc4p24domeip04b1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:325857612060:android:600e515706117c3ccbead9",
+        "android_client_info": {
+          "package_name": "com.skill_forge.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "325857612060-t69js08nmpob5j0t7i062ihqg4ltoaei.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.skill_forge.app",
+            "certificate_hash": "c4a66f991860eaa36b86653c8f8ac77f1153d24e"
+          }
+        },
+        {
+          "client_id": "325857612060-uc1ed3qitjh4p2osvc4p24domeip04b1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_QHy4Fn4QuCPu7GZKT2c8jKmCE_WPX_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "325857612060-uc1ed3qitjh4p2osvc4p24domeip04b1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:325857612060:android:a1121a6cf9f1792fcbead9",
+        "android_client_info": {
+          "package_name": "com.skillforge.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "325857612060-fa3nok75piq63ssddhioutrdfbme696h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.skillforge.app",
+            "certificate_hash": "bb15ae367b890823aae10888bebc7226d4b5d3c8"
+          }
+        },
+        {
+          "client_id": "325857612060-uc1ed3qitjh4p2osvc4p24domeip04b1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_QHy4Fn4QuCPu7GZKT2c8jKmCE_WPX_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "325857612060-uc1ed3qitjh4p2osvc4p24domeip04b1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,13 +1,17 @@
 package com.skill_forge.app.ui.main.screens
 
+import android.app.DownloadManager
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.google.firebase.firestore.Query
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,20 +24,30 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.*
 
 // ==================== DATA MODELS ====================
 
-enum class QuestStatus {
-    ACTIVE, COMPLETED
+enum class QuestRarity(
+    val displayName: String,
+    val color: Color,
+    val icon: String,
+    val xpReward: Int
+) {
+    COMMON("Common", Color(0xFFB0BEC5), "⚪", 100),
+    RARE("Rare", Color(0xFF00E5FF), "🔵", 250),
+    EPIC("Epic", Color(0xFFD500F9), "🟣", 500),
+    LEGENDARY("Legendary", Color(0xFFFFAB00), "🟠", 1000)
 }
 
 data class SubQuest(
@@ -41,43 +55,30 @@ data class SubQuest(
     val title: String = "",
     var isCompleted: Boolean = false
 ) {
-    constructor() : this("", "", false)
-}
-
-enum class QuestTemplate(val displayName: String, val icon: String) {
-    STUDY("Study Session", "📖"),
-    CODING("Coding Sprint", "💻"),
-    CREATIVE("Creative Work", "🎨"),
-    PRACTICE("Skill Practice", "🏋️"),
-    RESEARCH("Research Task", "📝"),
-    CUSTOM("Custom Quest", "⚡")
+    // No-argument constructor for Firestore deserialization
+    constructor() : this(UUID.randomUUID().toString(), "", false)
 }
 
 data class Quest(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "",
-    val description: String = "",
-    val subQuests: MutableList<SubQuest> = mutableListOf(),
-    var status: QuestStatus = QuestStatus.ACTIVE,
-    val difficulty: Float = 0.5f,
-    val estimatedTime: Int = 60, // minutes
-    val createdAt: Long = System.currentTimeMillis(),
-    val template: QuestTemplate = QuestTemplate.CUSTOM
+    val rarity: Int = 0, // 0: Common, 1: Rare, etc.
+    val subQuests: List<SubQuest> = emptyList(),
+    val status: Int = 0, // 0: Active, 1: Completed
+    val createdAt: Long = System.currentTimeMillis()
 ) {
-    constructor() : this("", "", "")
+    // No-argument constructor for Firestore
+    constructor() : this(UUID.randomUUID().toString(), "", 0, emptyList(), 0, System.currentTimeMillis())
+
+    // Helpers for UI
+    val rarityEnum: QuestRarity
+        get() = QuestRarity.entries.getOrElse(rarity) { QuestRarity.COMMON }
 
     val progress: Float
-        get() = if (subQuests.isEmpty()) 0f
-        else subQuests.count { it.isCompleted }.toFloat() / subQuests.size.toFloat()
-
-    val dueDate: Long
-        get() = createdAt + (estimatedTime * 60 * 1000)
-
-    val minutesRemaining: Int
-        get() = ((dueDate - System.currentTimeMillis()) / (60 * 1000)).toInt()
+        get() = if (subQuests.isEmpty()) 0f else subQuests.count { it.isCompleted }.toFloat() / subQuests.size
 }
 
-// ==================== MAIN SCREEN ====================
+// ==================== TASKS SCREEN UI ====================
 
 @Composable
 fun TaskScreen() {
@@ -85,618 +86,350 @@ fun TaskScreen() {
     val auth = FirebaseAuth.getInstance()
     val userId = auth.currentUser?.uid ?: ""
 
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) }
     var showNewQuestDialog by remember { mutableStateOf(false) }
     var quests by remember { mutableStateOf<List<Quest>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    val scope = rememberCoroutineScope()
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) {
+            isLoading = false
+            return@DisposableEffect onDispose { }
+        }
 
-    val tabs = listOf("Active", "Completed")
-
-    LaunchedEffect(Unit) {
-        if (userId.isNotEmpty()) {
-            loadQuestsFromFirestore(db, userId) { loaded ->
-                quests = loaded
-                isLoading = false
+        val listener: ListenerRegistration = db.collection("users")
+            .document(userId)
+            .collection("quests")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e("TaskScreen", "Listen failed.", e)
+                    isLoading = false
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    quests = snapshot.documents.mapNotNull { it.toObject(Quest::class.java) }
+                    isLoading = false
+                }
             }
-        } else isLoading = false
+        onDispose { listener.remove() }
     }
 
     val backgroundBrush = Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF0F2027),
-            Color(0xFF203A43),
-            Color(0xFF2C5364)
-        )
+        colors = listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
     )
 
     Box(
         modifier = Modifier.fillMaxSize().background(backgroundBrush)
     ) {
-        Column(Modifier.fillMaxSize().padding(16.dp)) {
-
+        Column(modifier = Modifier.fillMaxSize()) {
             QuestBoardHeader()
-
-            Spacer(Modifier.height(16.dp))
-
-            QuestTabRow(
-                selectedTab = selectedTab,
-                tabs = tabs,
-                onTabSelected = { selectedTab = it }
-            )
-
-            Spacer(Modifier.height(16.dp))
+            QuestTabRow(selectedTab, onTabSelected = { selectedTab = it })
+            Spacer(modifier = Modifier.height(8.dp))
 
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF00BCD4))
+                    CircularProgressIndicator(color = Color(0xFF00E5FF))
                 }
             } else {
-                val filtered = when (selectedTab) {
-                    0 -> quests.filter { it.status == QuestStatus.ACTIVE }
-                    1 -> quests.filter { it.status == QuestStatus.COMPLETED }
-                    else -> emptyList()
-                }
-
-                QuestList(
-                    quests = filtered,
-                    onQuestUpdated = { updated ->
-                        scope.launch {
-                            if (userId.isNotEmpty()) updateQuestInFirestore(db, userId, updated)
-                            quests = quests.map { if (it.id == updated.id) updated else it }
-                        }
-                    },
-                    onQuestDeleted = { questId ->
-                        scope.launch {
-                            if (userId.isNotEmpty()) deleteQuestFromFirestore(db, userId, questId)
-                            quests = quests.filter { it.id != questId }
-                        }
+                // Filter: Tab 0 = Active (status 0), Tab 1 = Completed (status 1)
+                val filteredQuests = quests.filter {
+                    when (selectedTab) {
+                        0 -> it.status == 0
+                        1 -> it.status == 1
+                        else -> true
                     }
-                )
+                }
+                OptimizedQuestList(filteredQuests, userId, db)
             }
         }
 
         FloatingActionButton(
             onClick = { showNewQuestDialog = true },
             modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
-            containerColor = Color(0xFF00BCD4),
-            contentColor = Color.White
+            containerColor = Color(0xFF00E5FF),
+            contentColor = Color.Black
         ) {
-            Icon(Icons.Default.Add, contentDescription = "New Quest")
+            Icon(Icons.Default.Add, "Add Quest")
         }
 
         if (showNewQuestDialog) {
-            NewQuestDialog(
+            QuickQuestDialog(
                 onDismiss = { showNewQuestDialog = false },
                 onQuestCreated = { newQuest ->
-                    scope.launch {
-                        if (userId.isNotEmpty()) saveQuestToFirestore(db, userId, newQuest)
-                        quests = quests + newQuest
-                        showNewQuestDialog = false
+                    if (userId.isNotEmpty()) {
+                        db.collection("users").document(userId).collection("quests")
+                            .document(newQuest.id).set(newQuest)
                     }
+                    showNewQuestDialog = false
                 }
             )
         }
     }
 }
 
-// ==================== COMPONENTS ====================
+// ... (Keep existing smaller components like QuestBoardHeader, QuestTabRow from your file)
+// Make sure to define these below if they aren't already there.
 
 @Composable
 fun QuestBoardHeader() {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("🗂️", fontSize = 32.sp)
-        Spacer(Modifier.width(12.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(
-            "QUEST BOARD",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
+            text = "QUEST BOARD",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Black,
             color = Color.White,
             letterSpacing = 2.sp
         )
-    }
-}
-
-@Composable
-fun QuestTabRow(selectedTab: Int, tabs: List<String>, onTabSelected: (Int) -> Unit) {
-    Surface(
-        shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.3f),
-        modifier = Modifier.fillMaxWidth().height(48.dp)
-    ) {
-        Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            tabs.forEachIndexed { index, name ->
-                QuestTab(
-                    text = name,
-                    selected = selectedTab == index,
-                    onClick = { onTabSelected(index) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun QuestTab(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(CircleShape)
-            .background(if (selected) Color(0xFF00BCD4) else Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = if (selected) Color.White else Color.Gray,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
+        Spacer(modifier = Modifier.weight(1f))
+        Icon(
+            imageVector = Icons.Default.Notifications,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(28.dp)
         )
     }
 }
 
 @Composable
-fun QuestList(
-    quests: List<Quest>,
-    onQuestUpdated: (Quest) -> Unit,
-    onQuestDeleted: (String) -> Unit
-) {
-    if (quests.isEmpty()) {
-        EmptyQuestState()
-    } else {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 80.dp)
-        ) {
-            items(quests, key = { it.id }) { quest ->
-                QuestCard(quest, onQuestUpdated, onQuestDeleted)
+fun QuestTabRow(selectedTab: Int, onTabSelected: (Int) -> Unit) {
+    val tabs = listOf("Active Quests", "Completed Log")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(50.dp)
+            .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+            .padding(4.dp)
+    ) {
+        tabs.forEachIndexed { index, title ->
+            val isSelected = selectedTab == index
+            val bgColor = if (isSelected) Color(0xFF00E5FF) else Color.Transparent
+            val textColor = if (isSelected) Color.Black else Color.Gray
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(bgColor)
+                    .clickable { onTabSelected(index) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(title, color = textColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
         }
     }
 }
 
 @Composable
-fun EmptyQuestState() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("🗺️", fontSize = 72.sp)
-            Spacer(Modifier.height(16.dp))
-            Text("No Quests Available", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(Modifier.height(8.dp))
-            Text("Tap + to create your first quest!", fontSize = 14.sp, color = Color.Gray)
+fun OptimizedQuestList(quests: List<Quest>, userId: String, db: FirebaseFirestore) {
+    if (quests.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("📜", fontSize = 60.sp)
+                Text("No quests found.", color = Color.Gray, modifier = Modifier.padding(top = 16.dp))
+            }
+        }
+    } else {
+        LazyColumn(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(items = quests, key = { it.id }) { quest ->
+                QuestCard(quest, userId, db)
+            }
+            item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun QuestCard(
-    quest: Quest,
-    onQuestUpdated: (Quest) -> Unit,
-    onQuestDeleted: (String) -> Unit
-) {
+fun QuestCard(quest: Quest, userId: String, db: FirebaseFirestore) {
     var expanded by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var isDragging by remember { mutableStateOf(false) }
-
-    // Auto-complete timer
-    LaunchedEffect(quest.id) {
-        val remaining = quest.dueDate - System.currentTimeMillis()
-        if (remaining > 0) kotlinx.coroutines.delay(remaining)
-        if (quest.status != QuestStatus.COMPLETED) {
-            quest.status = QuestStatus.COMPLETED
-            onQuestUpdated(quest)
-        }
-    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .scale(if (isDragging) 0.95f else 1f)
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { isDragging = true },
-                    onDragEnd = { isDragging = false },
-                    onDragCancel = { isDragging = false },
-                    onDrag = { _, _ -> }
-                )
-            }
-            .combinedClickable(
-                onClick = { expanded = !expanded },
-                onLongClick = { isDragging = true }
-            ),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.1f)),
+            .animateContentSize()
+            .clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E272E)),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.5f))
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(quest.rarityEnum.color.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(quest.rarityEnum.icon, fontSize = 24.sp)
+                }
 
-            // Header Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                Spacer(modifier = Modifier.width(16.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Text(quest.template.icon, fontSize = 24.sp)
-                    Spacer(Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        quest.title,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = quest.title,
                         color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Text(
+                        text = "${quest.rarityEnum.displayName} • ${quest.rarityEnum.xpReward} XP",
+                        color = quest.rarityEnum.color,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
 
-                // COMPLETE CHECKBOX
-                Checkbox(
-                    checked = quest.status == QuestStatus.COMPLETED,
-                    onCheckedChange = { checked ->
-                        quest.status = if (checked) QuestStatus.COMPLETED else QuestStatus.ACTIVE
-                        onQuestUpdated(quest)
-                    },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = Color(0xFF4CAF50),
-                        uncheckedColor = Color.Gray
-                    )
-                )
-
-                IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFFF5555), modifier = Modifier.size(20.dp))
+                IconButton(onClick = {
+                    db.collection("users").document(userId).collection("quests").document(quest.id).delete()
+                }) {
+                    Icon(Icons.Default.Delete, null, tint = Color.Gray)
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Progress Bar
-            Column {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(
-                        "Sub-quests: ${quest.subQuests.count { it.isCompleted }}/${quest.subQuests.size} ✓",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                    Text(
-                        "${(quest.progress * 100).toInt()}%",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00BCD4)
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-                LinearProgressIndicator(
-                    progress = { quest.progress },
-                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-                    color = Color.Cyan,
-                    trackColor = Color.Gray.copy(alpha = 0.3f)
-                )
-            }
+            LinearProgressIndicator(
+                progress = { quest.progress },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = quest.rarityEnum.color,
+                trackColor = Color.White.copy(alpha = 0.1f)
+            )
 
-            // Expanded Content
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Column(Modifier.padding(top = 12.dp)) {
+            if (expanded) {
+                Spacer(modifier = Modifier.height(16.dp))
+                if (quest.subQuests.isEmpty()) {
+                    Text("No sub-tasks.", color = Color.Gray, fontSize = 12.sp)
+                } else {
+                    quest.subQuests.forEach { subQuest ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            Checkbox(
+                                checked = subQuest.isCompleted,
+                                onCheckedChange = { isChecked ->
+                                    val updatedSubQuests = quest.subQuests.map {
+                                        if (it.id == subQuest.id) it.copy(isCompleted = isChecked) else it
+                                    }
+                                    val allDone = updatedSubQuests.all { it.isCompleted }
+                                    val newStatus = if (allDone) 1 else 0
 
-                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 8.dp))
-
-                    quest.subQuests.forEach { sub ->
-                        SubQuestItem(subQuest = sub) {
-                            sub.isCompleted = !sub.isCompleted
-                            onQuestUpdated(quest)
+                                    db.collection("users").document(userId).collection("quests")
+                                        .document(quest.id)
+                                        .update(mapOf("subQuests" to updatedSubQuests, "status" to newStatus))
+                                },
+                                colors = CheckboxDefaults.colors(checkedColor = quest.rarityEnum.color)
+                            )
+                            Text(
+                                text = subQuest.title,
+                                color = if (subQuest.isCompleted) Color.Gray else Color.White,
+                                textDecoration = if (subQuest.isCompleted) TextDecoration.LineThrough else null,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
                         }
                     }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        InfoChip(icon = "⏰", text = "${quest.minutesRemaining}m left")
-                    }
                 }
             }
         }
     }
-
-    // Delete Dialog
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Quest?") },
-            text = { Text("Are you sure you want to delete '${quest.title}'?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onQuestDeleted(quest.id)
-                    showDeleteDialog = false
-                }) {
-                    Text("Delete", color = Color(0xFFFF5555))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable
-fun SubQuestItem(
-    subQuest: SubQuest,
-    onToggle: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = subQuest.isCompleted,
-            onCheckedChange = { onToggle() },
-            colors = CheckboxDefaults.colors(
-                checkedColor = Color(0xFF4CAF50),
-                uncheckedColor = Color.Gray
-            )
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = subQuest.title,
-            fontSize = 14.sp,
-            color = if (subQuest.isCompleted) Color.Gray else Color.White,
-            textDecoration = if (subQuest.isCompleted) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
-        )
-    }
-}
-
-@Composable
-fun InfoChip(icon: String, text: String) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color.White.copy(alpha = 0.1f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(icon, fontSize = 14.sp)
-            Spacer(Modifier.width(4.dp))
-            Text(text, fontSize = 12.sp, color = Color.Gray)
-        }
-    }
-}
-
-// ==================== NEW QUEST DIALOG ====================
-
-@Composable
-fun NewQuestDialog(
-    onDismiss: () -> Unit,
-    onQuestCreated: (Quest) -> Unit
-) {
+fun QuickQuestDialog(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
     var title by remember { mutableStateOf("") }
-    var selectedTemplate by remember { mutableStateOf(QuestTemplate.CUSTOM) }
-    var difficulty by remember { mutableStateOf(0.5f) }
-    var estimatedTime by remember { mutableStateOf(60) }
-    var subQuestInputs by remember { mutableStateOf(listOf("", "", "")) }
+    var selectedRarity by remember { mutableIntStateOf(0) }
+    var subTasksText by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A47)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF263238)),
             shape = RoundedCornerShape(24.dp)
         ) {
-            Column(Modifier.padding(24.dp)) {
-                Text("🆕 CREATE NEW QUEST", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-
-                Spacer(Modifier.height(16.dp))
+            Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
+                Text("New Quest", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Quest Title") },
-                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Title") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
-                        focusedLabelColor = Color(0xFF00BCD4),
-                        unfocusedLabelColor = Color.Gray
-                    )
+                        focusedBorderColor = Color(0xFF00E5FF),
+                        unfocusedBorderColor = Color.Gray
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(16.dp))
-
-                Text("Quest Template", fontSize = 14.sp, color = Color.Gray)
-                Spacer(Modifier.height(8.dp))
-
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuestTemplate.entries.take(4).forEach { template ->
-                        TemplateChip(
-                            template = template,
-                            selected = selectedTemplate == template,
-                            onClick = { selectedTemplate = template }
-                        )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Rarity", color = Color.Gray)
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    QuestRarity.entries.forEachIndexed { index, rarity ->
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    if (selectedRarity == index) rarity.color else Color.Transparent,
+                                    CircleShape
+                                )
+                                .border(1.dp, rarity.color, CircleShape)
+                                .clickable { selectedRarity = index },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(rarity.icon)
+                        }
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
-
-                Text("Difficulty", fontSize = 14.sp, color = Color.Gray)
-
-                Slider(
-                    value = difficulty,
-                    onValueChange = { difficulty = it },
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF00BCD4),
-                        activeTrackColor = Color(0xFF00BCD4)
-                    )
-                )
-
-                Spacer(Modifier.height(16.dp))
-
-                Text("Estimated Time (minutes)", fontSize = 14.sp, color = Color.Gray)
-
+                Spacer(modifier = Modifier.height(16.dp))
                 OutlinedTextField(
-                    value = estimatedTime.toString(),
-                    onValueChange = { estimatedTime = it.toIntOrNull() ?: 60 },
-                    modifier = Modifier.fillMaxWidth(),
+                    value = subTasksText,
+                    onValueChange = { subTasksText = it },
+                    label = { Text("Subtasks (one per line)") },
+                    minLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF00E5FF),
+                        unfocusedBorderColor = Color.Gray
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = {
+                        val subQuests = subTasksText.split("\n")
+                            .filter { it.isNotBlank() }
+                            .map { SubQuest(title = it.trim()) }
 
-                Text("Sub-quests (Optional)", fontSize = 14.sp, color = Color.Gray)
-
-                subQuestInputs.forEachIndexed { index, value ->
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = { newValue ->
-                            subQuestInputs = subQuestInputs.toMutableList().apply {
-                                set(index, newValue)
-                            }
-                        },
-                        placeholder = { Text("Sub-quest ${index + 1}") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                        val quest = Quest(
+                            title = title,
+                            rarity = selectedRarity,
+                            subQuests = subQuests
                         )
-                    )
-                }
-
-                Spacer(Modifier.height(24.dp))
-
-                Row(
+                        onQuestCreated(quest)
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
                 ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Gray)
-                    ) {
-                        Text("Cancel")
-                    }
-
-                    Button(
-                        onClick = {
-                            val quest = Quest(
-                                title = title,
-                                template = selectedTemplate,
-                                difficulty = difficulty,
-                                estimatedTime = estimatedTime,
-                                subQuests = subQuestInputs
-                                    .filter { it.isNotBlank() }
-                                    .map { SubQuest(title = it) }
-                                    .toMutableList()
-                            )
-                            onQuestCreated(quest)
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00BCD4)),
-                        enabled = title.isNotBlank()
-                    ) {
-                        Text("Create")
-                    }
+                    Text("Create Quest", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
-}
-
-@Composable
-fun TemplateChip(
-    template: QuestTemplate,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) Color(0xFF00BCD4) else Color.White.copy(alpha = 0.1f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(template.icon, fontSize = 16.sp)
-        }
-    }
-}
-
-// ==================== FIRESTORE OPERATIONS ====================
-
-suspend fun loadQuestsFromFirestore(
-    db: FirebaseFirestore,
-    userId: String,
-    onLoaded: (List<Quest>) -> Unit
-) {
-    try {
-        val snapshot = db.collection("users")
-            .document(userId)
-            .collection("quests")
-            .get()
-            .await()
-
-        val quests = snapshot.documents.mapNotNull { doc -> doc.toObject(Quest::class.java) }
-        onLoaded(quests)
-    } catch (e: Exception) {
-        onLoaded(emptyList())
-    }
-}
-
-suspend fun saveQuestToFirestore(
-    db: FirebaseFirestore,
-    userId: String,
-    quest: Quest
-) {
-    try {
-        db.collection("users")
-            .document(userId)
-            .collection("quests")
-            .document(quest.id)
-            .set(quest)
-            .await()
-    } catch (_: Exception) { }
-}
-
-suspend fun updateQuestInFirestore(
-    db: FirebaseFirestore,
-    userId: String,
-    quest: Quest
-) {
-    try {
-        db.collection("users")
-            .document(userId)
-            .collection("quests")
-            .document(quest.id)
-            .set(quest)
-            .await()
-    } catch (_: Exception) { }
-}
-
-suspend fun deleteQuestFromFirestore(
-    db: FirebaseFirestore,
-    userId: String,
-    questId: String
-) {
-    try {
-        db.collection("users")
-            .document(userId)
-            .collection("quests")
-            .document(questId)
-            .delete()
-            .await()
-    } catch (_: Exception) { }
 }
