@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.skill_forge.app" />
+                  <option name="mobileSdkAppId" value="1:325857612060:android:600e515706117c3ccbead9" />
+                  <option name="projectId" value="skill-forge-2a072" />
+                  <option name="projectNumber" value="325857612060" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
