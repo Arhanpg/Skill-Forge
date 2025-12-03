@@ -1,5 +1,6 @@
 package com.skill_forge.app.ui.main.screens
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,24 +12,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import android.util.Log
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers // Required for crash fix
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext // Required for crash fix
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 @Composable
 fun QuizScreen() {
     val scope = rememberCoroutineScope()
 
-    // UI State
+    // === UI STATE ===
     var topic by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
-    var currentQuestion by remember { mutableStateOf<QuizData?>(null) }
+
+    // Quiz Game State
+    var quizQuestions by remember { mutableStateOf<List<QuizData>>(emptyList()) }
+    var currentQuestionIndex by remember { mutableIntStateOf(0) }
     var selectedOption by remember { mutableStateOf<Int?>(null) }
     var resultMessage by remember { mutableStateOf("") }
+    var score by remember { mutableIntStateOf(0) }
+    var isQuizFinished by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -45,85 +52,119 @@ fun QuizScreen() {
             modifier = Modifier.padding(vertical = 24.dp)
         )
 
-        // Input Area
-        OutlinedTextField(
-            value = topic,
-            onValueChange = { topic = it },
-            label = { Text("Enter Topic (e.g. Kotlin Coroutines)") },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedBorderColor = Color(0xFF00E5FF),
-                unfocusedBorderColor = Color.Gray
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
+        // === 1. INPUT PHASE (Show only if no questions generated) ===
+        if (quizQuestions.isEmpty() && !isLoading) {
+            OutlinedTextField(
+                value = topic,
+                onValueChange = { topic = it },
+                label = { Text("Enter Topic (e.g. Kotlin Coroutines)") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF00E5FF),
+                    unfocusedBorderColor = Color.Gray
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // === GENERATE BUTTON ===
-        Button(
-            onClick = {
-                if (topic.isNotBlank()) {
-                    scope.launch {
-                        isLoading = true
-                        currentQuestion = null // Reset previous question
-                        selectedOption = null
-                        resultMessage = ""
+            Button(
+                onClick = {
+                    if (topic.isNotBlank()) {
+                        scope.launch {
+                            isLoading = true
+                            isQuizFinished = false
+                            score = 0
+                            currentQuestionIndex = 0
+                            selectedOption = null
+                            resultMessage = ""
 
-                        // FIX: Run network call on IO thread to prevent crash
-                        val jsonString = withContext(Dispatchers.IO) {
-                            try {
-                                // This calls the file GeminiService.kt we created
-                                GeminiService.generateQuizQuestion(topic)
-                            } catch (e: Exception) {
-                                // This prevents the crash if something fails
-                                e.printStackTrace()
-                                "{}" // Return empty JSON on error
+                            // Run network call on IO thread
+                            val jsonString = withContext(Dispatchers.IO) {
+                                try {
+                                    GeminiService.generateQuizQuestion(topic)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    "[]" // Return empty array string on error
+                                }
                             }
-                        }
 
-                        // UI updates must happen back on Main thread (automatic in Compose)
-                        if (jsonString != "{}") {
-                            currentQuestion = parseQuizJson(jsonString)
+                            // Parse the list of questions
+                            val parsedQuestions = parseQuizJson(jsonString)
+
+                            if (parsedQuestions.isNotEmpty()) {
+                                quizQuestions = parsedQuestions
+                            } else {
+                                resultMessage = "Failed to generate questions. Try again."
+                            }
+                            isLoading = false
                         }
-                        isLoading = false
                     }
-                }
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD500F9)), // Epic Purple
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Forging Question...")
-            } else {
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD500F9)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("Generate Quiz")
+            }
+
+            if (resultMessage.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(resultMessage, color = Color.Red)
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        // === 2. LOADING PHASE ===
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFF00E5FF))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Forging Questions...", color = Color.White)
+                }
+            }
+        }
 
-        // === QUIZ DISPLAY AREA ===
-        currentQuestion?.let { q ->
+        // === 3. QUIZ ACTIVE PHASE ===
+        if (quizQuestions.isNotEmpty() && !isQuizFinished) {
+            val currentQ = quizQuestions[currentQuestionIndex]
+
+            // Progress Bar
+            LinearProgressIndicator(
+                progress = { (currentQuestionIndex + 1) / quizQuestions.size.toFloat() },
+                modifier = Modifier.fillMaxWidth().height(8.dp),
+                color = Color(0xFF00E5FF),
+                trackColor = Color.DarkGray,
+            )
+            Text(
+                text = "Question ${currentQuestionIndex + 1} of ${quizQuestions.size}",
+                color = Color.Gray,
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+            )
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF263238)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = q.question, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = currentQ.question,
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    q.options.forEachIndexed { index, optionText ->
+                    currentQ.options.forEachIndexed { index, optionText ->
                         val isSelected = selectedOption == index
-                        val isCorrect = index == q.correctIndex
+                        val isCorrect = index == currentQ.correctIndex
+                        val isAnswerRevealed = selectedOption != null
 
                         // Color Logic
                         val borderColor = when {
-                            selectedOption != null && isCorrect -> Color.Green
-                            selectedOption == index && !isCorrect -> Color.Red
+                            isAnswerRevealed && index == currentQ.correctIndex -> Color.Green // Show correct always
+                            isAnswerRevealed && isSelected && !isCorrect -> Color.Red // Show wrong if selected
                             isSelected -> Color(0xFF00E5FF)
                             else -> Color.Gray
                         }
@@ -136,21 +177,82 @@ fun QuizScreen() {
                                 .background(if (isSelected) borderColor.copy(alpha = 0.1f) else Color.Transparent)
                                 .clickable(enabled = selectedOption == null) {
                                     selectedOption = index
-                                    resultMessage = if (index == q.correctIndex) "Correct! +50 XP" else "Incorrect."
+                                    if (index == currentQ.correctIndex) {
+                                        score += 10
+                                        resultMessage = "Correct! +10 XP"
+                                    } else {
+                                        resultMessage = "Wrong! The answer was option ${currentQ.correctIndex + 1}"
+                                    }
                                 }
                                 .padding(16.dp)
                         ) {
                             Text(text = optionText, color = Color.White)
                         }
                     }
+                }
+            }
 
-                    if (resultMessage.isNotEmpty()) {
-                        Text(
-                            text = resultMessage,
-                            color = if (resultMessage.contains("Correct")) Color.Green else Color.Red,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 16.dp).align(Alignment.CenterHorizontally)
-                        )
+            // Result & Next Button
+            if (selectedOption != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = resultMessage,
+                    color = if (resultMessage.contains("Correct")) Color.Green else Color.Red,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (currentQuestionIndex < quizQuestions.size - 1) {
+                            // Move to next question
+                            currentQuestionIndex++
+                            selectedOption = null
+                            resultMessage = ""
+                        } else {
+                            // End Quiz
+                            isQuizFinished = true
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (currentQuestionIndex < quizQuestions.size - 1) "Next Question" else "Finish Quiz")
+                }
+            }
+        }
+
+        // === 4. QUIZ FINISHED PHASE ===
+        if (isQuizFinished) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF263238)),
+                modifier = Modifier.fillMaxWidth().padding(top = 32.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("QUIZ COMPLETED!", color = Color(0xFFD500F9), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Your Score", color = Color.Gray, fontSize = 16.sp)
+                    Text("$score / ${quizQuestions.size * 10}", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = {
+                            // Reset everything
+                            quizQuestions = emptyList()
+                            topic = ""
+                            isLoading = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Forge New Quiz")
                     }
                 }
             }
@@ -166,43 +268,49 @@ data class QuizData(
     val correctIndex: Int
 )
 
-// In QuizScreen.kt (at the bottom)
+/**
+ * Parses the JSON string from Gemini.
+ * Handles both single JSON Objects OR JSON Arrays (List of questions).
+ */
+fun parseQuizJson(jsonResponse: String): List<QuizData> {
+    val questionsList = mutableListOf<QuizData>()
 
-// In QuizScreen.kt
-
-fun parseQuizJson(jsonResponse: String): QuizData? {
     try {
-        // 1. Sanitize the input: Remove Markdown code blocks if the AI disobeyed
+        // 1. Sanitize: Remove Markdown code blocks
         var cleanJson = jsonResponse.replace("```json", "").replace("```", "").trim()
 
-        // 2. Find the JSON object brackets explicitly
-        val startIndex = cleanJson.indexOf('{')
-        val endIndex = cleanJson.lastIndexOf('}')
-
-        if (startIndex != -1 && endIndex != -1) {
-            cleanJson = cleanJson.substring(startIndex, endIndex + 1)
+        // 2. Determine if it is an Array [...] or Object {...}
+        if (cleanJson.startsWith("[")) {
+            // It's a JSON Array (Multiple Questions)
+            val jsonArray = JSONArray(cleanJson)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                questionsList.add(parseSingleJsonObj(obj))
+            }
+        } else if (cleanJson.startsWith("{")) {
+            // It's a single JSON Object
+            val jsonObject = JSONObject(cleanJson)
+            questionsList.add(parseSingleJsonObj(jsonObject))
         } else {
-            // No brackets found means the AI returned a refusal or error text
-            Log.e("QuizParser", "Invalid JSON format received: $jsonResponse")
-            return QuizData("AI Error: Could not generate question.", listOf("Try Again", "-", "-", "-"), 0)
+            Log.e("QuizParser", "Invalid JSON format: $cleanJson")
         }
-
-        // 3. Parse JSON
-        val jsonObject = JSONObject(cleanJson)
-        val question = jsonObject.getString("question")
-        val correctIndex = jsonObject.getInt("correctIndex")
-        val optionsArray = jsonObject.getJSONArray("options")
-
-        val options = mutableListOf<String>()
-        for (i in 0 until optionsArray.length()) {
-            options.add(optionsArray.getString(i))
-        }
-
-        return QuizData(question, options, correctIndex)
 
     } catch (e: Exception) {
-        // 4. Catch parsing errors (e.g. missing keys)
         Log.e("QuizParser", "Parsing failed", e)
-        return QuizData("Error parsing quiz data.", listOf("Retry", "-", "-", "-"), 0)
     }
+
+    return questionsList
+}
+
+// Helper to avoid duplicate code
+fun parseSingleJsonObj(jsonObject: JSONObject): QuizData {
+    val question = jsonObject.getString("question")
+    val correctIndex = jsonObject.getInt("correctIndex")
+    val optionsArray = jsonObject.getJSONArray("options")
+
+    val options = mutableListOf<String>()
+    for (i in 0 until optionsArray.length()) {
+        options.add(optionsArray.getString(i))
+    }
+    return QuizData(question, options, correctIndex)
 }

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource // Added for Image
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
@@ -44,6 +45,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.skill_forge.app.ui.main.screens.GeminiService
+// IMPORTANT: Make sure this import matches your package name exactly to access R.drawable
+import com.skill_forge.app.R
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -186,6 +189,9 @@ fun HomeScreen(
 
 @Composable
 fun HeaderStats(user: UserProfile) {
+    // Determine which Rank Image to show based on XP
+    val rankImageId = getRankDrawable(user.xp)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -199,7 +205,47 @@ fun HeaderStats(user: UserProfile) {
         Divider(color = Color.White.copy(0.2f), modifier = Modifier.height(30.dp).width(1.dp))
         StatItem(icon = "⚡", value = "${user.coins}", label = "Edu Coins", color = Color(0xFFFFD700))
         Divider(color = Color.White.copy(0.2f), modifier = Modifier.height(30.dp).width(1.dp))
-        StatItem(icon = "🎖️", value = "Rank", label = "Badge", color = Color(0xFFCD7F32))
+
+        // --- NEW RANK DISPLAY LOGIC ---
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(
+                painter = painterResource(id = rankImageId),
+                contentDescription = "Rank Badge",
+                modifier = Modifier.size(45.dp) // Adjusted size for visual balance
+            )
+            // Use XP in label to show progress, e.g., "350 XP"
+            Text(text = "${user.xp} XP", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// Helper function to map XP to Drawable Resources
+fun getRankDrawable(xp: Int): Int {
+    return when {
+        // Wood Tier (0 - 299)
+        xp < 100 -> R.drawable.rank_wood_1
+        xp < 200 -> R.drawable.rank_wood_2
+        xp < 300 -> R.drawable.rank_wood_3
+
+        // Bronze Tier (300 - 599)
+        xp < 400 -> R.drawable.rank_bronze_1
+        xp < 500 -> R.drawable.rank_bronze_2
+        xp < 600 -> R.drawable.rank_bronze_3
+
+        // Silver Tier (600 - 999)
+        xp < 700 -> R.drawable.rank_silver_1
+        xp < 850 -> R.drawable.rank_silver_2
+        xp < 1000 -> R.drawable.rank_silver_3
+
+        // Gold Tier (1000 - 1499)
+        xp < 1150 -> R.drawable.rank_gold_1
+        xp < 1300 -> R.drawable.rank_gold_2
+        xp < 1500 -> R.drawable.rank_gold_3
+
+        // Master Tier (1500+)
+        xp < 1700 -> R.drawable.rank_master_1
+        xp < 2000 -> R.drawable.rank_master_2
+        else -> R.drawable.rank_master_3
     }
 }
 
