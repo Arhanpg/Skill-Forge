@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.skill_forge.app.ui.auth.AuthScreen
 import com.skill_forge.app.ui.main.MainScreen
+import com.skill_forge.app.ui.main.MainScreen
 
 @Composable
 fun NavGraph(navController: NavHostController) {

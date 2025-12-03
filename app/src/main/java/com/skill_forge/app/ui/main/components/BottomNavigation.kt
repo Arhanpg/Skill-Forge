@@ -1,4 +1,4 @@
-package com.skill_forge.app.ui.main.components
+package com.skill_forge.ui.main.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
@@ -31,8 +31,9 @@ fun BottomNavigationBar(
 ) {
     val tabs = listOf(
         BottomNavItem("Home", Icons.Default.Home),
-        BottomNavItem("Tasks", Icons.Default.Task),
-        BottomNavItem("Store", Icons.Default.Store),
+        BottomNavItem("Tasks", Icons.Default.List), // Used List as it is standard
+        BottomNavItem("Tree", Icons.Default.AccountTree), // NEW SKILL TREE TAB
+        BottomNavItem("Store", Icons.Default.ShoppingCart),
         BottomNavItem("Profile", Icons.Default.Person)
     )
 

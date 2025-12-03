@@ -538,7 +538,7 @@ fun saveUserToFirestore(
 ) {
     val userId = auth.currentUser?.uid ?: return onError("User ID not found")
 
-    // FIX: Explicitly initialize XP, Coins, and Streak to avoid crashes on Home Screen
+    // 1. Prepare User Profile Data
     val userData = hashMapOf(
         "username" to username,
         "email" to email,
@@ -549,9 +549,40 @@ fun saveUserToFirestore(
         "streakDays" to 0
     )
 
-    // Use SetOptions.merge() to prevent overwriting existing data if the user logs in again
-    db.collection("users").document(userId)
-        .set(userData, SetOptions.merge())
+    // 2. Prepare Initial Skill Tree Data
+    // Inside saveUserToFirestore...
+    // 2. Prepare Initial Skill Tree Data
+    val initialTreeData = hashMapOf(
+        "id" to "root",
+        "name" to "CORE",
+        "colorArgb" to 0xFFFFFFFF.toInt(), // Changed to Int
+        "children" to listOf(
+            hashMapOf(
+                "id" to java.util.UUID.randomUUID().toString(),
+                "name" to "CODING",
+                "colorArgb" to 0xFFD500F9.toInt(), // Changed to Int
+                "children" to listOf<Any>()
+            ),
+            hashMapOf(
+                "id" to java.util.UUID.randomUUID().toString(),
+                "name" to "DESIGN",
+                "colorArgb" to 0xFFFFAB00.toInt(), // Changed to Int
+                "children" to listOf<Any>()
+            )
+        )
+    )
+// ... rest of the function
+
+    val batch = db.batch()
+    val userRef = db.collection("users").document(userId)
+    val treeRef = userRef.collection("skill_tree").document("root")
+
+    // Add both operations to batch
+    batch.set(userRef, userData, com.google.firebase.firestore.SetOptions.merge())
+    batch.set(treeRef, initialTreeData)
+
+    // Commit
+    batch.commit()
         .addOnSuccessListener { onSuccess() }
         .addOnFailureListener { e -> onError("Error saving profile: ${e.message}") }
 }

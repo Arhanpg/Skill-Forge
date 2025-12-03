@@ -11,18 +11,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavHostController
-import com.skill_forge.app.ui.main.components.BottomNavigationBar
+import com.skill_forge.ui.main.components.BottomNavigationBar
 import com.skill_forge.app.ui.main.screens.HomeScreen
 import com.skill_forge.app.ui.main.screens.ProfileScreen
+import com.skill_forge.app.ui.main.screens.SkillTreeScreen // IMPORT ADDED
 import com.skill_forge.app.ui.main.screens.StoreScreen
 import com.skill_forge.app.ui.main.screens.TaskScreen
 import com.google.firebase.auth.FirebaseAuth
+
 
 @Composable
 fun MainScreen(navController: NavHostController) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // We still need auth for ProfileScreen if you haven't refactored that one yet
     val auth = FirebaseAuth.getInstance()
 
     Scaffold(
@@ -50,12 +51,11 @@ fun MainScreen(navController: NavHostController) {
         ) {
             Box(modifier = Modifier.padding(paddingValues)) {
                 when (selectedTab) {
-                    // FIX: Removed 'auth' parameter because HomeScreen now handles it internally
                     0 -> HomeScreen()
                     1 -> TaskScreen()
-                    2 -> StoreScreen()
-                    // ProfileScreen likely still needs these parameters based on your previous code
-                    3 -> ProfileScreen(auth, navController)
+                    2 -> SkillTreeScreen() // ADDED SKILL TREE SCREEN
+                    3 -> StoreScreen()
+                    4 -> ProfileScreen(auth, navController)
                 }
             }
         }
