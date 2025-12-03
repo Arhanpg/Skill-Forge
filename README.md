@@ -1,4 +1,4 @@
-# 🎮 Skill-Forge
+![IMG-20251203-WA0015](https://github.com/user-attachments/assets/4c345c40-8f3a-4611-bbdf-95a4dc11ca12)![IMG-20251203-WA0014](https://github.com/user-attachments/assets/668e9fa8-9127-4eb2-99e7-b8813bce222d)# 🎮 Skill-Forge
 
 <div align="center">
 
@@ -31,7 +31,7 @@ STEM students and self-learners often struggle with:
 ### ✨ Our Solution
 
 Skill-Forge bridges the gap between study and gaming through:
-- **Real-World Stat Mapping**: Level up specific skills (Coding, Math, Problem Solving) by logging focused time
+- **Real-World Stat Mapping**: Level up specific skills like (Coding, Math, Problem Solving) by logging focused time
 - **Boss Battle Verification**: AI-generated quizzes ensure honest progress tracking
 - **Visual Skill Trees**: Node-based graphs showcasing intellectual growth
 - **Edu Coins Economy**: Earn rewards redeemable for courses and Amazon coupons
@@ -42,10 +42,7 @@ Skill-Forge bridges the gap between study and gaming through:
 
 ### Core Gameplay
 
-#### 🦸 Hero & Stats System
-- Create your unique avatar with customizable appearance
-- Level up 3 core stats: **Coding**, **Mathematics**, **Problem Solving**
-- Watch your character evolve as you master new skills
+
 
 #### ⏱️ Focus Timer Engine
 - Robust Pomodoro-style timer for focused study sessions
@@ -65,7 +62,7 @@ Skill-Forge bridges the gap between study and gaming through:
 
 #### 🛒 Inventory & Shop
 - Spend Edu Coins on cosmetic upgrades
-- Unlock character skins and visual enhancements
+- Unlock visual enhancements
 - Future: Redeem for educational courses and Amazon vouchers
 
 ### Engagement Features
@@ -91,22 +88,29 @@ Skill-Forge bridges the gap between study and gaming through:
 
 ## 📸 Screenshots
 
-> *Coming Soon*
 
----
+![IMG-20251203-WA0015](https://github.com/user-attachments/assets/356bcb09-f9da-4ba5-9ed1-57c9e2d22d38)
+
+![IMG-20251203-WA0014](https://github.com/user-attachments/assets/cb413d80-6e75-4756-ae26-757ba69f8e11)
+
+![IMG-20251203-WA0013](https://github.com/user-attachments/assets/2ddf9d25-a328-4b09-a7b4-f437cf093af4)
+![IMG-20251203-WA0012](https://github.com/user-attachments/assets/f3fb1544-b36e-4c62-8552-994bb733b2f6)
+![IMG-20251203-WA0017](https://github.com/user-attachments/assets/f03a05e7-d1e1-4ba0-a9f3-a3911f0a11a1)
+![IMG-20251203-WA0016](https://github.com/user-attachments/assets/518d8b8d-60ba-41dd-9b18-ca723f3d2333)
+
 
 ## 🛠️ Tech Stack
 
 ### Frontend
-- **Framework**: Jetpack Compose (Modern Android UI)
+- **Framework**: Jetpack Compose (Modern Android UI) 
 - **Architecture**: MVVM (Model-View-ViewModel)
 - **Language**: Kotlin
 
 ### Backend & Services
-- **Backend**: Firebase Suite
+- **Backend**: Firebase Studio
   - Firestore: Cloud database for user data
   - Firebase Auth: Secure authentication
-  - Cloud Functions: Anti-cheat logic and serverless operations
+  - Cloud Functions: Anti-cheat logic and serverless operations 
 - **AI Integration**: Gemini API for quiz generation and task tracking
 - **Monetization**: Google Mobile Ads SDK (AdMob)
 
