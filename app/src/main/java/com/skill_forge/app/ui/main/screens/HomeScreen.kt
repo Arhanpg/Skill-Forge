@@ -4,21 +4,29 @@ import android.content.Context
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -27,25 +35,24 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.painterResource // Added for Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.skill_forge.app.ui.main.models.UserProfile
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
-import com.skill_forge.app.ui.main.screens.GeminiService
-// IMPORTANT: Make sure this import matches your package name exactly to access R.drawable
 import com.skill_forge.app.R
 
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +61,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.roundToInt
 
 // ==================== CONFIGURATION ====================
@@ -68,6 +77,37 @@ data class QuizQuestion(
     val correctIndex: Int
 )
 
+// Data class to hold Rank Information
+data class RankTier(
+    val name: String,
+    val minXp: Int,
+    val drawableId: Int,
+    val color: Color
+)
+
+// Centralized List of All Ranks
+val ALL_RANKS = listOf(
+    RankTier("Wood I", 0, R.drawable.rank_wood_1, Color(0xFF8D6E63)),
+    RankTier("Wood II", 100, R.drawable.rank_wood_2, Color(0xFF8D6E63)),
+    RankTier("Wood III", 200, R.drawable.rank_wood_3, Color(0xFF8D6E63)),
+
+    RankTier("Bronze I", 300, R.drawable.rank_bronze_1, Color(0xFFCD7F32)),
+    RankTier("Bronze II", 400, R.drawable.rank_bronze_2, Color(0xFFCD7F32)),
+    RankTier("Bronze III", 500, R.drawable.rank_bronze_3, Color(0xFFCD7F32)),
+
+    RankTier("Silver I", 600, R.drawable.rank_silver_1, Color(0xFFC0C0C0)),
+    RankTier("Silver II", 700, R.drawable.rank_silver_2, Color(0xFFC0C0C0)),
+    RankTier("Silver III", 850, R.drawable.rank_silver_3, Color(0xFFC0C0C0)),
+
+    RankTier("Gold I", 1000, R.drawable.rank_gold_1, Color(0xFFFFD700)),
+    RankTier("Gold II", 1150, R.drawable.rank_gold_2, Color(0xFFFFD700)),
+    RankTier("Gold III", 1300, R.drawable.rank_gold_3, Color(0xFFFFD700)),
+
+    RankTier("Master I", 1500, R.drawable.rank_master_1, Color(0xFF9C27B0)),
+    RankTier("Master II", 1700, R.drawable.rank_master_2, Color(0xFF9C27B0)),
+    RankTier("Master III", 2000, R.drawable.rank_master_3, Color(0xFFE040FB))
+)
+
 // ==================== MAIN SCREEN ====================
 
 @Composable
@@ -76,6 +116,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var showRankDialog by remember { mutableStateOf(false) }
 
     // Cyber Theme Colors
     val cyberBlue = Color(0xFF00E5FF)
@@ -96,7 +137,6 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Ensure listeners are active
     LaunchedEffect(Unit) {
         viewModel.startListening()
     }
@@ -115,7 +155,10 @@ fun HomeScreen(
         ) {
             // Header
             if (viewModel.userProfile.value != null) {
-                HeaderStats(viewModel.userProfile.value!!)
+                HeaderStats(
+                    user = viewModel.userProfile.value!!,
+                    onRankClick = { showRankDialog = true }
+                )
             } else {
                 CircularProgressIndicator(color = cyberBlue)
             }
@@ -182,15 +225,22 @@ fun HomeScreen(
                 }
             }
         }
+
+        // --- RANK PROGRESSION DIALOG ---
+        if (showRankDialog && viewModel.userProfile.value != null) {
+            RankDetailsDialog(
+                currentXp = viewModel.userProfile.value!!.xp,
+                onDismiss = { showRankDialog = false }
+            )
+        }
     }
 }
 
 // ==================== SUB-COMPONENTS ====================
 
 @Composable
-fun HeaderStats(user: UserProfile) {
-    // Determine which Rank Image to show based on XP
-    val rankImageId = getRankDrawable(user.xp)
+fun HeaderStats(user: UserProfile, onRankClick: () -> Unit) {
+    val currentRank = ALL_RANKS.lastOrNull { user.xp >= it.minXp } ?: ALL_RANKS.first()
 
     Row(
         modifier = Modifier
@@ -206,46 +256,99 @@ fun HeaderStats(user: UserProfile) {
         StatItem(icon = "⚡", value = "${user.coins}", label = "Edu Coins", color = Color(0xFFFFD700))
         Divider(color = Color.White.copy(0.2f), modifier = Modifier.height(30.dp).width(1.dp))
 
-        // --- NEW RANK DISPLAY LOGIC ---
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onRankClick() }
+                .padding(4.dp)
+        ) {
             Image(
-                painter = painterResource(id = rankImageId),
+                painter = painterResource(id = currentRank.drawableId),
                 contentDescription = "Rank Badge",
-                modifier = Modifier.size(45.dp) // Adjusted size for visual balance
+                modifier = Modifier.size(45.dp)
             )
-            // Use XP in label to show progress, e.g., "350 XP"
             Text(text = "${user.xp} XP", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
-// Helper function to map XP to Drawable Resources
-fun getRankDrawable(xp: Int): Int {
-    return when {
-        // Wood Tier (0 - 299)
-        xp < 100 -> R.drawable.rank_wood_1
-        xp < 200 -> R.drawable.rank_wood_2
-        xp < 300 -> R.drawable.rank_wood_3
+@Composable
+fun RankDetailsDialog(currentXp: Int, onDismiss: () -> Unit) {
+    val maxRankXp = ALL_RANKS.last().minXp + 500
+    val progressTarget = (currentXp.toFloat() / maxRankXp.toFloat()).coerceIn(0f, 1f)
+    val animatedProgress by animateFloatAsState(
+        targetValue = progressTarget,
+        animationSpec = tween(durationMillis = 1000, delayMillis = 200),
+        label = "progress"
+    )
 
-        // Bronze Tier (300 - 599)
-        xp < 400 -> R.drawable.rank_bronze_1
-        xp < 500 -> R.drawable.rank_bronze_2
-        xp < 600 -> R.drawable.rank_bronze_3
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF162238)),
+            border = BorderStroke(2.dp, Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9)))),
+            modifier = Modifier.fillMaxWidth().height(600.dp).shadow(16.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("RANK PROGRESSION", color = Color(0xFF00E5FF), fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, null, tint = Color.Gray)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Total XP: $currentXp", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(0.5f))) {
+                    Box(modifier = Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().background(Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9)))))
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    itemsIndexed(ALL_RANKS) { index, rank ->
+                        val isUnlocked = currentXp >= rank.minXp
+                        val isCurrent = isUnlocked && (index == ALL_RANKS.lastIndex || currentXp < ALL_RANKS[index+1].minXp)
+                        var isVisible by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) { delay(index * 100L); isVisible = true }
+                        AnimatedVisibility(visible = isVisible, enter = slideInHorizontally(initialOffsetX = { 100 }) + fadeIn()) {
+                            RankListItem(rank = rank, isUnlocked = isUnlocked, isCurrent = isCurrent)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-        // Silver Tier (600 - 999)
-        xp < 700 -> R.drawable.rank_silver_1
-        xp < 850 -> R.drawable.rank_silver_2
-        xp < 1000 -> R.drawable.rank_silver_3
+@Composable
+fun RankListItem(rank: RankTier, isUnlocked: Boolean, isCurrent: Boolean) {
+    val borderColor = if (isCurrent) Color(0xFF00E5FF) else if (isUnlocked) Color.Green.copy(0.3f) else Color.Gray.copy(0.3f)
+    val bgColor = if (isCurrent) Color(0xFF00E5FF).copy(0.1f) else Color.Black.copy(0.3f)
+    val alpha = if (isUnlocked) 1f else 0.4f
 
-        // Gold Tier (1000 - 1499)
-        xp < 1150 -> R.drawable.rank_gold_1
-        xp < 1300 -> R.drawable.rank_gold_2
-        xp < 1500 -> R.drawable.rank_gold_3
-
-        // Master Tier (1500+)
-        xp < 1700 -> R.drawable.rank_master_1
-        xp < 2000 -> R.drawable.rank_master_2
-        else -> R.drawable.rank_master_3
+    Card(
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        border = BorderStroke(if(isCurrent) 2.dp else 1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Image(painter = painterResource(id = rank.drawableId), contentDescription = null, modifier = Modifier.size(50.dp).alpha(alpha))
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(rank.name, color = if(isCurrent) Color.White else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("${rank.minXp} XP Required", color = if(isCurrent) Color(0xFF00E5FF) else Color.Gray.copy(0.6f), fontSize = 12.sp)
+            }
+            if (isCurrent) {
+                Text("CURRENT", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            } else if (isUnlocked) {
+                Icon(Icons.Default.CheckBox, null, tint = Color.Green)
+            } else {
+                Icon(Icons.Default.Lock, null, tint = Color.Gray)
+            }
+        }
     }
 }
 
@@ -270,8 +373,6 @@ fun IdleState(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("⚔️ PREPARE FOR BATTLE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(24.dp))
-
-        // Custom Time Selector
         Card(
             colors = CardDefaults.cardColors(containerColor = Color.Black.copy(0.3f)),
             border = BorderStroke(1.dp, primaryColor.copy(0.5f)),
@@ -280,7 +381,6 @@ fun IdleState(
             Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("BATTLE DURATION", color = primaryColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Text("${sliderValue.toInt()} min", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-
                 Slider(
                     value = sliderValue,
                     onValueChange = onSliderChange,
@@ -290,13 +390,9 @@ fun IdleState(
                 )
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
         Text("🎯 Select Sub-Tasks to Focus On", color = Color.Gray, modifier = Modifier.align(Alignment.Start), fontSize = 14.sp)
         Spacer(modifier = Modifier.height(8.dp))
-
-        // Nested List: Quest -> SubTasks
         LazyColumn(
             modifier = Modifier
                 .height(250.dp)
@@ -313,10 +409,7 @@ fun IdleState(
                     quest.subQuests.filter { !it.isCompleted }.forEach { sub ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 16.dp, bottom = 4.dp)
-                                .clickable { onSubTaskToggle(sub.id) }
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, bottom = 4.dp).clickable { onSubTaskToggle(sub.id) }
                         ) {
                             Icon(
                                 imageVector = if (selectedSubIds.contains(sub.id)) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
@@ -332,20 +425,12 @@ fun IdleState(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
         Button(
             onClick = onStart,
             enabled = selectedSubIds.isNotEmpty(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .shadow(12.dp, RoundedCornerShape(28.dp), spotColor = primaryColor),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = primaryColor,
-                disabledContainerColor = Color.Gray.copy(0.3f)
-            ),
+            modifier = Modifier.fillMaxWidth().height(56.dp).shadow(12.dp, RoundedCornerShape(28.dp), spotColor = primaryColor),
+            colors = ButtonDefaults.buttonColors(containerColor = primaryColor, disabledContainerColor = Color.Gray.copy(0.3f)),
             shape = RoundedCornerShape(28.dp)
         ) {
             Icon(Icons.Default.PlayArrow, null, tint = if(selectedSubIds.isNotEmpty()) Color.Black else Color.Gray)
@@ -372,7 +457,6 @@ fun RunningState(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("BATTLE IN PROGRESS", color = primaryColor, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, fontSize = 20.sp)
         Spacer(modifier = Modifier.height(32.dp))
-
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(280.dp)) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawArc(Color.Gray.copy(0.2f), 0f, 360f, false, style = Stroke(15.dp.toPx(), cap = StrokeCap.Round))
@@ -383,9 +467,7 @@ fun RunningState(
                 Text("Remaining", color = Color.Gray, fontSize = 14.sp)
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
-
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("⚡ FOCUS", color = Color.Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -396,7 +478,6 @@ fun RunningState(
                 Text("${distractionSeconds / 60}m ${distractionSeconds % 60}s", color = Color.White, fontSize = 16.sp)
             }
         }
-
         Spacer(modifier = Modifier.height(32.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Button(onClick = onPause, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))) { Text("⏸️ Pause") }
@@ -432,7 +513,6 @@ fun CompletionSelectState(
         Text("✅ MISSION DEBRIEF", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text("Check tasks you actually finished:", color = Color.Gray, fontSize = 14.sp)
         Spacer(modifier = Modifier.height(16.dp))
-
         LazyColumn(
             modifier = Modifier
                 .height(300.dp)
@@ -442,16 +522,12 @@ fun CompletionSelectState(
         ) {
             items(quests) { quest ->
                 val relevantSubtasks = quest.subQuests.filter { selectedSubIds.contains(it.id) }
-
                 if (relevantSubtasks.isNotEmpty()) {
                     Text(quest.title, color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(vertical = 4.dp))
                     relevantSubtasks.forEach { sub ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 16.dp, bottom = 4.dp)
-                                .clickable { onToggleComplete(sub.id) }
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, bottom = 4.dp).clickable { onToggleComplete(sub.id) }
                         ) {
                             Icon(
                                 imageVector = if (completedSubIds.contains(sub.id)) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
@@ -471,7 +547,6 @@ fun CompletionSelectState(
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
         Button(
             onClick = onConfirm,
@@ -523,15 +598,12 @@ fun QuizState(questions: List<QuizQuestion>, primaryColor: Color, onComplete: (I
         Button(onClick = { onComplete(0) }) { Text("Skip") }
         return
     }
-
     val currentQ = questions[index]
-
     Column(modifier = Modifier.padding(16.dp)) {
         Text("⚔️ KNOWLEDGE DUEL", color = Color(0xFFFFD700), fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
         Text("Q${index + 1}: ${currentQ.question}", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.height(16.dp))
-
         currentQ.options.forEachIndexed { i, opt ->
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { selected = i },
@@ -541,7 +613,6 @@ fun QuizState(questions: List<QuizQuestion>, primaryColor: Color, onComplete: (I
                 Text(opt, modifier = Modifier.padding(16.dp), color = if (selected == i) Color.Black else Color.White)
             }
         }
-
         Spacer(modifier = Modifier.height(24.dp))
         Button(
             onClick = {
@@ -567,7 +638,6 @@ fun RewardState(xp: Int, coins: Int, primaryColor: Color, onClaim: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center, modifier = Modifier.fillMaxSize()) {
         Text("🎉 VICTORY! 🎉", fontSize = 36.sp, color = Color(0xFFFFD700), fontWeight = FontWeight.Black)
         Spacer(modifier = Modifier.height(32.dp))
-
         Card(
             colors = CardDefaults.cardColors(containerColor = Color.Black.copy(0.3f)),
             border = BorderStroke(1.dp, primaryColor),
@@ -589,7 +659,6 @@ fun RewardState(xp: Int, coins: Int, primaryColor: Color, onClaim: () -> Unit) {
                 }
             }
         }
-
         Spacer(modifier = Modifier.height(48.dp))
         Button(
             onClick = onClaim,
@@ -646,7 +715,6 @@ class HomeViewModel : ViewModel() {
         profileListener = db.collection("users").document(userId)
             .addSnapshotListener { snapshot, e ->
                 if (snapshot != null && snapshot.exists()) {
-                    // Handle nulls safely
                     val xp = snapshot.getLong("xp")?.toInt() ?: 0
                     val coins = snapshot.getLong("coins")?.toInt() ?: 0
                     val streak = snapshot.getLong("streakDays")?.toInt() ?: 0
@@ -822,45 +890,58 @@ class HomeViewModel : ViewModel() {
     }
 }
 
-// ==================== FIREBASE VERTEX AI LOGIC ====================
+// ==================== FIREBASE VERTEX AI LOGIC (FIXED) ====================
 
+/**
+ * Updated to handle both JSON Array and JSON Object formats from GeminiService
+ */
 suspend fun generateFirebaseQuiz(summary: String): List<QuizQuestion>? {
     return withContext(Dispatchers.IO) {
         try {
-            // ❌ REMOVE THE BROKEN FIREBASE CODE:
-            // val generativeModel = Firebase.vertexAI.generativeModel("gemini-1.5-flash")
-
-            // ✅ USE YOUR NEW WORKING SERVICE INSTEAD:
-            // We reuse the quiz generation logic from GeminiService
             val jsonString = GeminiService.generateQuizQuestion(summary)
-
-            // Because the prompt in GeminiService asks for ONE question in JSON format,
-            // we need to parse it slightly differently here to fit your List<QuizQuestion> return type.
-            // For now, let's wrap the single result into a list.
-
+            // 1. Sanitize Markdown
             val cleanJson = jsonString.replace("```json", "").replace("```", "").trim()
-            val jsonObject = org.json.JSONObject(cleanJson)
 
-            val questionText = jsonObject.getString("question")
-            val correctIdx = jsonObject.getInt("correctIndex")
-            val optionsArray = jsonObject.getJSONArray("options")
-            val optionsList = mutableListOf<String>()
-            for (i in 0 until optionsArray.length()) {
-                optionsList.add(optionsArray.getString(i))
+            val questions = mutableListOf<QuizQuestion>()
+
+            // 2. Check if it is an Array [...] or Object {...}
+            if (cleanJson.startsWith("[")) {
+                // It's a JSON Array (List of questions)
+                val jsonArray = JSONArray(cleanJson)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    questions.add(parseJsonObjToQuestion(obj))
+                }
+            } else if (cleanJson.startsWith("{")) {
+                // It's a single JSON Object
+                val jsonObject = JSONObject(cleanJson)
+                questions.add(parseJsonObjToQuestion(jsonObject))
+            } else {
+                Log.e("AI_QUIZ", "Invalid JSON format: $cleanJson")
+                return@withContext null
             }
 
-            // Return a list containing this single question
-            listOf(
-                QuizQuestion(
-                    question = questionText,
-                    options = optionsList,
-                    correctIndex = correctIdx
-                )
-            )
+            questions
 
         } catch (e: Exception) {
-            android.util.Log.e("AI_QUIZ", "Gemini Service Error", e)
+            Log.e("AI_QUIZ", "Gemini Service Parsing Error", e)
             null
         }
     }
+}
+
+// Helper function to parse individual JSON object
+fun parseJsonObjToQuestion(json: JSONObject): QuizQuestion {
+    val questionText = json.getString("question")
+    val correctIdx = json.getInt("correctIndex")
+    val optionsArray = json.getJSONArray("options")
+    val optionsList = mutableListOf<String>()
+    for (i in 0 until optionsArray.length()) {
+        optionsList.add(optionsArray.getString(i))
+    }
+    return QuizQuestion(
+        question = questionText,
+        options = optionsList,
+        correctIndex = correctIdx
+    )
 }
