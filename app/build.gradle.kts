@@ -72,7 +72,7 @@ dependencies {
     implementation("com.google.firebase:firebase-database")
     implementation("com.google.firebase:firebase-storage")
     implementation("com.google.firebase:firebase-analytics")
-
+    implementation("com.google.firebase:firebase-vertexai:16.0.2")
     // --- Credential Manager & Google Sign-In ---
     // Cleaned up duplicates. Using the explicit versions to ensure compatibility
     // since we don't know what versions are inside your 'libs' catalog.
@@ -92,6 +92,7 @@ dependencies {
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.firebase.ai)
 
     // --- Testing ---
     testImplementation(libs.junit)

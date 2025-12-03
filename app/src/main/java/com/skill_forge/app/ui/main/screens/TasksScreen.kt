@@ -1,28 +1,29 @@
 package com.skill_forge.app.ui.main.screens
-
-import android.app.DownloadManager
 import android.util.Log
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectDragGestures
+import android.widget.Toast
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.google.firebase.firestore.Query
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,9 +33,8 @@ import androidx.compose.ui.window.Dialog
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import java.util.*
+import com.google.firebase.firestore.Query
+import java.util.UUID
 
 // ==================== DATA MODELS ====================
 
@@ -55,22 +55,19 @@ data class SubQuest(
     val title: String = "",
     var isCompleted: Boolean = false
 ) {
-    // No-argument constructor for Firestore deserialization
     constructor() : this(UUID.randomUUID().toString(), "", false)
 }
 
 data class Quest(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "",
-    val rarity: Int = 0, // 0: Common, 1: Rare, etc.
+    val rarity: Int = 0,
     val subQuests: List<SubQuest> = emptyList(),
     val status: Int = 0, // 0: Active, 1: Completed
     val createdAt: Long = System.currentTimeMillis()
 ) {
-    // No-argument constructor for Firestore
     constructor() : this(UUID.randomUUID().toString(), "", 0, emptyList(), 0, System.currentTimeMillis())
 
-    // Helpers for UI
     val rarityEnum: QuestRarity
         get() = QuestRarity.entries.getOrElse(rarity) { QuestRarity.COMMON }
 
@@ -85,12 +82,14 @@ fun TaskScreen() {
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
     val userId = auth.currentUser?.uid ?: ""
+    val context = LocalContext.current
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showNewQuestDialog by remember { mutableStateOf(false) }
     var quests by remember { mutableStateOf<List<Quest>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
+    // Real-time listener
     DisposableEffect(userId) {
         if (userId.isEmpty()) {
             isLoading = false
@@ -132,11 +131,10 @@ fun TaskScreen() {
                     CircularProgressIndicator(color = Color(0xFF00E5FF))
                 }
             } else {
-                // Filter: Tab 0 = Active (status 0), Tab 1 = Completed (status 1)
                 val filteredQuests = quests.filter {
                     when (selectedTab) {
-                        0 -> it.status == 0
-                        1 -> it.status == 1
+                        0 -> it.status == 0 // Active
+                        1 -> it.status == 1 // Completed
                         else -> true
                     }
                 }
@@ -158,8 +156,19 @@ fun TaskScreen() {
                 onDismiss = { showNewQuestDialog = false },
                 onQuestCreated = { newQuest ->
                     if (userId.isNotEmpty()) {
+                        // FIX: Explicit error handling for saving
                         db.collection("users").document(userId).collection("quests")
-                            .document(newQuest.id).set(newQuest)
+                            .document(newQuest.id)
+                            .set(newQuest)
+                            .addOnSuccessListener {
+                                Toast.makeText(context, "Quest Added!", Toast.LENGTH_SHORT).show()
+                            }
+                            .addOnFailureListener { e ->
+                                Log.e("TaskScreen", "Error saving quest", e)
+                                Toast.makeText(context, "Failed to save: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                    } else {
+                        Toast.makeText(context, "Error: User not logged in", Toast.LENGTH_SHORT).show()
                     }
                     showNewQuestDialog = false
                 }
@@ -167,9 +176,6 @@ fun TaskScreen() {
         }
     }
 }
-
-// ... (Keep existing smaller components like QuestBoardHeader, QuestTabRow from your file)
-// Make sure to define these below if they aren't already there.
 
 @Composable
 fun QuestBoardHeader() {
@@ -325,6 +331,7 @@ fun QuestCard(quest: Quest, userId: String, db: FirebaseFirestore) {
                                         if (it.id == subQuest.id) it.copy(isCompleted = isChecked) else it
                                     }
                                     val allDone = updatedSubQuests.all { it.isCompleted }
+                                    // Automatically mark as completed if all subtasks are done
                                     val newStatus = if (allDone) 1 else 0
 
                                     db.collection("users").document(userId).collection("quests")
@@ -413,16 +420,18 @@ fun QuickQuestDialog(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
                     onClick = {
-                        val subQuests = subTasksText.split("\n")
-                            .filter { it.isNotBlank() }
-                            .map { SubQuest(title = it.trim()) }
+                        if (title.isNotBlank()) {
+                            val subQuests = subTasksText.split("\n")
+                                .filter { it.isNotBlank() }
+                                .map { SubQuest(title = it.trim()) }
 
-                        val quest = Quest(
-                            title = title,
-                            rarity = selectedRarity,
-                            subQuests = subQuests
-                        )
-                        onQuestCreated(quest)
+                            val quest = Quest(
+                                title = title,
+                                rarity = selectedRarity,
+                                subQuests = subQuests
+                            )
+                            onQuestCreated(quest)
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
