@@ -9,8 +9,8 @@ import com.skill_forge.app.ui.main.MainScreen
 import com.skill_forge.app.ui.main.MainScreen
 
 @Composable
-fun NavGraph(navController: NavHostController) {
-    NavHost(navController = navController, startDestination = "auth") {
+fun NavGraph(navController: NavHostController,startDestination: String) {
+    NavHost(navController = navController, startDestination = startDestination) {
         composable("auth") {
             AuthScreen(navController = navController)
         }
