@@ -61,23 +61,3 @@ data class QuizQuestion(
 }
 
 
-object RankHelper {
-    fun getRankDrawable(coins: Long): Int {
-        return when {
-            coins < 50 -> R.drawable.rank_wood_1
-            coins < 100 -> R.drawable.rank_wood_2
-            coins < 150 -> R.drawable.rank_wood_3
-            coins < 250 -> R.drawable.rank_bronze_1
-            coins < 350 -> R.drawable.rank_bronze_2
-            coins < 450 -> R.drawable.rank_bronze_3
-            coins < 600 -> R.drawable.rank_silver_1
-            coins < 750 -> R.drawable.rank_silver_2
-            coins < 900 -> R.drawable.rank_silver_3
-            coins < 1200 -> R.drawable.rank_gold_1
-            coins < 1500 -> R.drawable.rank_gold_2
-            coins < 2000 -> R.drawable.rank_gold_3
-            coins < 3000 -> R.drawable.rank_master_1
-            else -> R.drawable.rank_master_3
-        }
-    }
-}

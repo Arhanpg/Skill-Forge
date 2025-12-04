@@ -1,13 +1,15 @@
-package com.skill_forge.app.network // Update package if yours is different
+package com.skill_forge.app.network
 
 import android.util.Log
 import com.google.gson.Gson
 import com.skill_forge.app.ui.main.models.QuizQuestion
 import com.skill_forge.app.ui.main.models.ServerRequest
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
+import java.util.concurrent.TimeUnit // Required for setting time duration
 
 // ==================== API INTERFACE ====================
 interface QuizApi {
@@ -18,17 +20,29 @@ interface QuizApi {
 // ==================== SERVICE ====================
 object GeminiService {
 
-    // IMPORTANT: Update this NGROK URL every time you restart Colab
-    private const val BASE_URL = "https://your-ngrok-url-here.ngrok-free.app/"
+    // 🔴 IMPORTANT: Update this NGROK URL every time you restart your Python Colab script
+    private const val BASE_URL = "https://ian-unmumbling-isobel.ngrok-free.dev/"
+
+    // 🔴 FIX: Custom HTTP Client with Extended Timeouts
+    // This prevents the app from crashing while waiting for the AI to generate answers.
+    private val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS) // Wait 60s to find server
+            .readTimeout(60, TimeUnit.SECONDS)    // Wait 60s for AI response (Crucial)
+            .writeTimeout(60, TimeUnit.SECONDS)   // Wait 60s to send data
+            .build()
+    }
 
     private val api: QuizApi by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
+            .client(okHttpClient) // <--- ATTACH THE CUSTOM CLIENT HERE
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(QuizApi::class.java)
     }
 
+    // Used by HomeViewModel (Returns JSON String)
     suspend fun generateQuizQuestion(topic: String): String {
         return try {
             Log.d("GeminiService", "Requesting quiz for: $topic")
@@ -38,13 +52,12 @@ object GeminiService {
 
             Log.d("GeminiService", "Received ${responseList.size} questions")
 
-            // 2. Convert to JSON String to pass to ViewModel (or return List directly if you prefer)
-            // Using Gson to turn the list back into a String string for consistency with your parsing logic
+            // 2. Convert to JSON String to pass to ViewModel
             Gson().toJson(responseList)
 
         } catch (e: Exception) {
             Log.e("GeminiService", "Server Error", e)
-            // Return Error JSON
+            // Return Error JSON so the app doesn't crash, but shows a message
             """
             [
                 {
@@ -57,6 +70,7 @@ object GeminiService {
         }
     }
 
+    // Used by Task/Quest Logic (Returns List Object directly)
     suspend fun generateTaskQuiz(topic: String): List<QuizQuestion> {
         return try {
             Log.d("GeminiService", "Requesting quiz (List) for: $topic")
@@ -72,8 +86,9 @@ object GeminiService {
             )
         }
     }
+
     suspend fun generateQuestLoot(questTitle: String): String {
-        // Simulating AI Loot generation for now (since we don't have a specific endpoint)
+        // Simulating AI Loot generation for now
         kotlinx.coroutines.delay(1000)
         return """
             // AI REWARD FOR: $questTitle

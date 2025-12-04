@@ -13,7 +13,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.skill_forge.app.network.GeminiService
-import com.skill_forge.app.ui.main.models.* import kotlinx.coroutines.Dispatchers
+import com.skill_forge.app.ui.main.models.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -21,27 +22,29 @@ import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
+import com.skill_forge.app.R // Make sure to import your R file
+
+// --- NEW: RANK DATA STRUCTURE ---
+data class RankDefinition(
+    val title: String,
+    val xpRequired: Int,
+    val drawableId: Int
+)
 
 class HomeViewModel : ViewModel() {
 
-    // IMPORTANT: Matching the database instance used in your AuthScreen ("skillforge")
     private val db = FirebaseFirestore.getInstance("skillforge")
     private val auth = FirebaseAuth.getInstance()
     private val userId = auth.currentUser?.uid ?: ""
 
     // --- STATE VARIABLES ---
     val userProfile = mutableStateOf<UserProfile?>(null)
-
-    // Using SessionState from QuizModels.kt
     val state = mutableStateOf(SessionState.IDLE)
-
     val activeQuests = mutableStateOf<List<Quest>>(emptyList())
 
     // --- SELECTION & TIMER STATE ---
     val selectedSubQuestIds = mutableStateOf<Set<String>>(emptySet())
     val completedSubQuestIds = mutableStateOf<Set<String>>(emptySet())
-
-    // Timer Defaults (25 mins)
     val selectedDurationMin = mutableFloatStateOf(25f)
     val totalTimeSeconds = mutableLongStateOf(25 * 60L)
     val timeRemaining = mutableLongStateOf(25 * 60L)
@@ -53,8 +56,6 @@ class HomeViewModel : ViewModel() {
     private var timerJob: Job? = null
     private var pauseJob: Job? = null
     private var lastBackgroundTimestamp = 0L
-
-    // Listeners (to stop memory leaks)
     private var profileListener: ListenerRegistration? = null
     private var questListener: ListenerRegistration? = null
 
@@ -65,12 +66,59 @@ class HomeViewModel : ViewModel() {
     val currentXpReward = mutableIntStateOf(0)
     val currentCoinReward = mutableIntStateOf(0)
 
+    // --- RANK LOGIC ---
+    // Defined based on your screenshot structure
+    val ranks = listOf(
+        RankDefinition("Wood I", 0, R.drawable.rank_wood_1),
+        RankDefinition("Wood II", 100, R.drawable.rank_wood_2),
+        RankDefinition("Wood III", 200, R.drawable.rank_wood_3),
+        RankDefinition("Bronze I", 300, R.drawable.rank_bronze_1),
+        RankDefinition("Bronze II", 400, R.drawable.rank_bronze_2),
+        RankDefinition("Bronze III", 500, R.drawable.rank_bronze_3),
+        RankDefinition("Silver I", 600, R.drawable.rank_silver_1),
+        RankDefinition("Silver II", 800, R.drawable.rank_silver_2),
+        RankDefinition("Silver III", 1000, R.drawable.rank_silver_3),
+        RankDefinition("Gold I", 1500, R.drawable.rank_gold_1),
+        RankDefinition("Gold II", 2000, R.drawable.rank_gold_2),
+        RankDefinition("Gold III", 2500, R.drawable.rank_gold_3),
+        RankDefinition("Master I", 4000, R.drawable.rank_master_1),
+        RankDefinition("Master II", 6000, R.drawable.rank_master_2),
+        RankDefinition("Master III", 8000, R.drawable.rank_master_3)
+    )
+
+    fun getCurrentRankIndex(): Int {
+        val xp = userProfile.value?.xp ?: 0
+        // Find the highest rank where xpRequired <= currentXP
+        val index = ranks.indexOfLast { it.xpRequired <= xp }
+        return if (index == -1) 0 else index
+    }
+
+    fun getNextRankXp(): Int {
+        val currentIndex = getCurrentRankIndex()
+        return if (currentIndex < ranks.size - 1) ranks[currentIndex + 1].xpRequired else ranks.last().xpRequired
+    }
+
+    fun getRankProgress(): Float {
+        val xp = userProfile.value?.xp ?: 0
+        val currentIndex = getCurrentRankIndex()
+
+        // Max level reached
+        if (currentIndex >= ranks.size - 1) return 1.0f
+
+        val currentRankXp = ranks[currentIndex].xpRequired
+        val nextRankXp = ranks[currentIndex + 1].xpRequired
+
+        val diff = nextRankXp - currentRankXp
+        val progress = xp - currentRankXp
+
+        return (progress.toFloat() / diff.toFloat()).coerceIn(0f, 1f)
+    }
+
     // ==================== INITIALIZATION ====================
 
     fun startListening() {
         if (userId.isEmpty()) return
 
-        // 1. Listen to User Profile (Real-time XP/Coin updates)
         profileListener?.remove()
         profileListener = db.collection("users").document(userId)
             .addSnapshotListener { snapshot, e ->
@@ -80,19 +128,16 @@ class HomeViewModel : ViewModel() {
                 }
                 if (snapshot != null && snapshot.exists()) {
                     val rawProfile = snapshot.toObject(UserProfile::class.java)
-                    // Ensure we capture specific fields correctly even if auto-mapping fails
                     val xp = snapshot.getLong("xp")?.toInt() ?: 0
                     val coins = snapshot.getLong("coins")?.toInt() ?: 0
                     val streak = snapshot.getLong("streakDays")?.toInt() ?: 0
-
                     userProfile.value = rawProfile?.copy(xp = xp, coins = coins, streakDays = streak)
                 }
             }
 
-        // 2. Listen to Active Quests
         questListener?.remove()
         questListener = db.collection("users").document(userId).collection("quests")
-            .whereEqualTo("status", 0) // Only get active quests
+            .whereEqualTo("status", 0)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) return@addSnapshotListener
                 if (snapshot != null) {
@@ -108,12 +153,10 @@ class HomeViewModel : ViewModel() {
             Toast.makeText(context, "Select at least one sub-task!", Toast.LENGTH_SHORT).show()
             return
         }
-
-        // Setup Timer logic
         val duration = (selectedDurationMin.value.toInt() * 60).toLong()
         totalTimeSeconds.longValue = duration
         timeRemaining.longValue = duration
-        pauseAllowanceSeconds.longValue = duration / 12 // 5 mins pause for 60 mins work
+        pauseAllowanceSeconds.longValue = duration / 12
         focusSeconds.longValue = 0
         distractionSeconds.longValue = 0
 
@@ -144,7 +187,6 @@ class HomeViewModel : ViewModel() {
                 delay(1000)
                 pauseAllowanceSeconds.longValue--
             }
-            // Auto resume if pause allowance runs out
             if (pauseAllowanceSeconds.longValue <= 0 && state.value == SessionState.PAUSED) {
                 resumeSession()
             }
@@ -163,8 +205,6 @@ class HomeViewModel : ViewModel() {
         selectedSubQuestIds.value = emptySet()
     }
 
-    // ==================== TASK MANAGEMENT ====================
-
     fun toggleSubTaskSelection(subId: String) {
         val current = selectedSubQuestIds.value.toMutableSet()
         if (current.contains(subId)) current.remove(subId) else current.add(subId)
@@ -181,8 +221,6 @@ class HomeViewModel : ViewModel() {
         state.value = SessionState.REPORTING
     }
 
-    // ==================== LIFECYCLE / DISTRACTION ====================
-
     fun onAppBackgrounded() {
         lastBackgroundTimestamp = System.currentTimeMillis()
     }
@@ -191,15 +229,11 @@ class HomeViewModel : ViewModel() {
         if (state.value == SessionState.RUNNING && lastBackgroundTimestamp != 0L) {
             val now = System.currentTimeMillis()
             val diffSeconds = (now - lastBackgroundTimestamp) / 1000
-
             if (diffSeconds > 0) {
                 distractionSeconds.longValue += diffSeconds
-                // Subtract distraction time from remaining time (penalty)
                 timeRemaining.longValue = (timeRemaining.longValue - diffSeconds).coerceAtLeast(0)
             }
-
             lastBackgroundTimestamp = 0L
-
             if (timeRemaining.longValue <= 0) {
                 state.value = SessionState.COMPLETION_SELECT
                 timerJob?.cancel()
@@ -207,17 +241,11 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    // ==================== AI & REWARDS ====================
-
     fun generateQuiz(context: Context) {
         isGeneratingQuiz.value = true
         viewModelScope.launch {
-            // 1. Call the Service
             val jsonString = GeminiService.generateQuizQuestion(sessionSummary.value)
-
-            // 2. Parse the result using helper
             val quiz = parseQuizJson(jsonString)
-
             if (quiz.isNotEmpty()) {
                 generatedQuiz.value = quiz
                 state.value = SessionState.QUIZ
@@ -229,57 +257,37 @@ class HomeViewModel : ViewModel() {
     }
 
     fun completeQuiz(score: Int) {
-        // 1. Calculate Rewards based on formula
         val minutes = focusSeconds.longValue / 60.0
-
-        // XP: 0.95 per minute + 1 per correct answer
         val xpCalc = (0.95 * minutes) + (1.0 * score)
-
-        // Coins: 1 per minute + 1.5 per correct answer
         val coinCalc = (1.0 * minutes) + (1.5 * score)
-
         val newXpEarned = xpCalc.roundToInt()
         val newCoinsEarned = coinCalc.roundToInt()
 
         currentXpReward.intValue = newXpEarned
         currentCoinReward.intValue = newCoinsEarned
 
-        // 2. Update Database
         val currentTotalXp = userProfile.value?.xp ?: 0
         val currentTotalCoins = userProfile.value?.coins ?: 0
 
         viewModelScope.launch(Dispatchers.IO) {
             val batch = db.batch()
-
-            // A. Update Quest Completion Status
             activeQuests.value.forEach { quest ->
-                // Check if this quest has any subtasks that were marked as done
                 val relevantSubs = quest.subQuests.filter { completedSubQuestIds.value.contains(it.id) }
-
                 if (relevantSubs.isNotEmpty()) {
                     val updatedSubQuests = quest.subQuests.map {
                         if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
                     }
-
-                    // Check if entire quest is now done
                     val isQuestDone = updatedSubQuests.all { it.isCompleted }
-
                     val ref = db.collection("users").document(userId).collection("quests").document(quest.id)
                     batch.update(ref, "subQuests", updatedSubQuests)
-
-                    if (isQuestDone) {
-                        batch.update(ref, "status", 1) // Mark as completed
-                    }
+                    if (isQuestDone) batch.update(ref, "status", 1)
                 }
             }
-
-            // B. Update User Stats (XP & Coins)
             val userRef = db.collection("users").document(userId)
             batch.update(userRef, mapOf(
                 "xp" to (currentTotalXp + newXpEarned),
                 "coins" to (currentTotalCoins + newCoinsEarned)
             ))
-
             try {
                 batch.commit().await()
                 Log.d("HomeViewModel", "Rewards Saved Successfully")
@@ -287,7 +295,6 @@ class HomeViewModel : ViewModel() {
                 Log.e("HomeViewModel", "Error saving rewards", e)
             }
         }
-
         state.value = SessionState.REWARD
     }
 
@@ -307,23 +314,19 @@ class HomeViewModel : ViewModel() {
     }
 }
 
-// ==================== HELPER FUNCTIONS (Outside Class) ====================
+// ==================== HELPER FUNCTIONS ====================
 
 fun parseQuizJson(jsonResponse: String): List<QuizQuestion> {
     val questionsList = mutableListOf<QuizQuestion>()
     try {
-        // Sanitize string (remove markdown code blocks)
         var cleanJson = jsonResponse.replace("```json", "").replace("```", "").trim()
-
         if (cleanJson.startsWith("[")) {
-            // It's an Array of Questions
             val jsonArray = JSONArray(cleanJson)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 questionsList.add(parseObj(obj))
             }
         } else if (cleanJson.startsWith("{")) {
-            // It's a Single Question Object
             questionsList.add(parseObj(JSONObject(cleanJson)))
         }
     } catch (e: Exception) {

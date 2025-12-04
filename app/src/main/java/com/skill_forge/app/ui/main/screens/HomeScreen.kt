@@ -6,6 +6,9 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -22,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -117,19 +123,187 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             }
         }
 
-        // RANK DIALOG
+        // --- CUSTOM RANK DIALOG UI ---
         if (showRankDialog && viewModel.userProfile.value != null) {
-            AlertDialog(
-                onDismissRequest = { showRankDialog = false },
-                confirmButton = { Button(onClick = { showRankDialog = false }) { Text("Close") } },
-                title = { Text("Rank Progress") },
-                text = { Text("Current XP: ${viewModel.userProfile.value!!.xp}") }
+            RankProgressionDialog(
+                currentXp = viewModel.userProfile.value!!.xp,
+                ranks = viewModel.ranks,
+                currentIndex = viewModel.getCurrentRankIndex(),
+                progress = viewModel.getRankProgress(),
+                onDismiss = { showRankDialog = false }
             )
         }
     }
 }
 
-// ==================== SUB COMPONENTS (These were missing!) ====================
+@Composable
+fun RankProgressionDialog(
+    currentXp: Int,
+    ranks: List<RankDefinition>,
+    currentIndex: Int,
+    progress: Float,
+    onDismiss: () -> Unit
+) {
+    val listState = rememberLazyListState()
+
+    // Scroll to current rank automatically
+    LaunchedEffect(Unit) {
+        listState.scrollToItem((currentIndex - 1).coerceAtLeast(0))
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .width(350.dp)
+                .height(650.dp)
+                // Gradient Border effect
+                .border(
+                    width = 2.dp,
+                    brush = Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .background(Color(0xFF0B0F19), RoundedCornerShape(16.dp))
+                .padding(2.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "RANK PROGRESSION",
+                        color = Color(0xFF00E5FF),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Total XP Label
+                Text(
+                    text = "Total XP: $currentXp",
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Custom Linear Progress Bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF1E2738))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .background(Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))))
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Scrollable Rank List
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(ranks) { index, rank ->
+                        val isCurrent = index == currentIndex
+                        val isLocked = index > currentIndex
+                        val isPassed = index < currentIndex
+
+                        RankItemCard(rank, isCurrent, isLocked, isPassed)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RankItemCard(rank: RankDefinition, isCurrent: Boolean, isLocked: Boolean, isPassed: Boolean) {
+    val borderColor = if (isCurrent) Color(0xFF00E5FF) else Color(0xFF2A3142)
+    val bgColor = if (isCurrent) Color(0xFF131B29) else Color(0xFF131B29)
+    val alpha = if (isLocked) 0.5f else 1.0f
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .background(bgColor, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Rank Icon
+        Image(
+            painter = painterResource(id = rank.drawableId),
+            contentDescription = rank.title,
+            modifier = Modifier.size(48.dp).alpha(alpha)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        // Rank Details
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = rank.title,
+                color = Color.White.copy(alpha = alpha),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+            Text(
+                text = "${rank.xpRequired} XP Required",
+                color = Color.Gray.copy(alpha = alpha),
+                fontSize = 12.sp
+            )
+        }
+
+        // Status Indicator
+        if (isCurrent) {
+            Text(
+                text = "CURRENT",
+                color = Color(0xFF00E5FF),
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
+        } else if (isLocked) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Locked",
+                tint = Color.Gray,
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            // Passed
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = "Passed",
+                tint = Color(0xFFD500F9),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+// ==================== EXISTING SUB COMPONENTS ====================
 
 @Composable
 fun HeaderStats(user: UserProfile, onRankClick: () -> Unit) {
@@ -146,7 +320,6 @@ fun HeaderStats(user: UserProfile, onRankClick: () -> Unit) {
             Text("Coins", color = Color.Gray, fontSize = 10.sp)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onRankClick() }) {
-            // Fallback icon if no drawable logic
             Icon(Icons.Default.Star, null, tint = Color.Magenta)
             Text("${user.xp} XP", color = Color.Gray, fontSize = 10.sp)
         }
