@@ -22,9 +22,9 @@ import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
-import com.skill_forge.app.R // Make sure to import your R file
+import com.skill_forge.app.R
 
-// --- NEW: RANK DATA STRUCTURE ---
+// --- RANK DATA STRUCTURE ---
 data class RankDefinition(
     val title: String,
     val xpRequired: Int,
@@ -46,8 +46,14 @@ class HomeViewModel : ViewModel() {
     val selectedSubQuestIds = mutableStateOf<Set<String>>(emptySet())
     val completedSubQuestIds = mutableStateOf<Set<String>>(emptySet())
     val selectedDurationMin = mutableFloatStateOf(25f)
+
+    // TIMER FIX: Using Absolute Timestamps instead of simple countdown
+    private var sessionEndTimeMillis = 0L
+    private var pauseRemainingMillis = 0L
+
+    val timeRemaining = mutableLongStateOf(25 * 60L) // Display value in seconds
     val totalTimeSeconds = mutableLongStateOf(25 * 60L)
-    val timeRemaining = mutableLongStateOf(25 * 60L)
+
     val focusSeconds = mutableLongStateOf(0L)
     val distractionSeconds = mutableLongStateOf(0L)
     val pauseAllowanceSeconds = mutableLongStateOf(0L)
@@ -55,7 +61,6 @@ class HomeViewModel : ViewModel() {
     // --- INTERNAL HELPERS ---
     private var timerJob: Job? = null
     private var pauseJob: Job? = null
-    private var lastBackgroundTimestamp = 0L
     private var profileListener: ListenerRegistration? = null
     private var questListener: ListenerRegistration? = null
 
@@ -63,11 +68,11 @@ class HomeViewModel : ViewModel() {
     val sessionSummary = mutableStateOf("")
     val isGeneratingQuiz = mutableStateOf(false)
     val generatedQuiz = mutableStateOf<List<QuizQuestion>>(emptyList())
+    val lastQuizResults = mutableStateOf<List<UserQuizResult>>(emptyList())
     val currentXpReward = mutableIntStateOf(0)
     val currentCoinReward = mutableIntStateOf(0)
 
     // --- RANK LOGIC ---
-    // Defined based on your screenshot structure
     val ranks = listOf(
         RankDefinition("Wood I", 0, R.drawable.rank_wood_1),
         RankDefinition("Wood II", 100, R.drawable.rank_wood_2),
@@ -88,29 +93,18 @@ class HomeViewModel : ViewModel() {
 
     fun getCurrentRankIndex(): Int {
         val xp = userProfile.value?.xp ?: 0
-        // Find the highest rank where xpRequired <= currentXP
         val index = ranks.indexOfLast { it.xpRequired <= xp }
         return if (index == -1) 0 else index
-    }
-
-    fun getNextRankXp(): Int {
-        val currentIndex = getCurrentRankIndex()
-        return if (currentIndex < ranks.size - 1) ranks[currentIndex + 1].xpRequired else ranks.last().xpRequired
     }
 
     fun getRankProgress(): Float {
         val xp = userProfile.value?.xp ?: 0
         val currentIndex = getCurrentRankIndex()
-
-        // Max level reached
         if (currentIndex >= ranks.size - 1) return 1.0f
-
         val currentRankXp = ranks[currentIndex].xpRequired
         val nextRankXp = ranks[currentIndex + 1].xpRequired
-
         val diff = nextRankXp - currentRankXp
         val progress = xp - currentRankXp
-
         return (progress.toFloat() / diff.toFloat()).coerceIn(0f, 1f)
     }
 
@@ -122,10 +116,7 @@ class HomeViewModel : ViewModel() {
         profileListener?.remove()
         profileListener = db.collection("users").document(userId)
             .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    Log.e("HomeViewModel", "Profile listen error", e)
-                    return@addSnapshotListener
-                }
+                if (e != null) return@addSnapshotListener
                 if (snapshot != null && snapshot.exists()) {
                     val rawProfile = snapshot.toObject(UserProfile::class.java)
                     val xp = snapshot.getLong("xp")?.toInt() ?: 0
@@ -146,35 +137,50 @@ class HomeViewModel : ViewModel() {
             }
     }
 
-    // ==================== SESSION LOGIC ====================
+    // ==================== TIMER LOGIC (FIXED) ====================
 
     fun startSession(context: Context) {
         if (selectedSubQuestIds.value.isEmpty()) {
             Toast.makeText(context, "Select at least one sub-task!", Toast.LENGTH_SHORT).show()
             return
         }
-        val duration = (selectedDurationMin.value.toInt() * 60).toLong()
-        totalTimeSeconds.longValue = duration
-        timeRemaining.longValue = duration
-        pauseAllowanceSeconds.longValue = duration / 12
+
+        // 1. Calculate duration in seconds
+        val durationSeconds = (selectedDurationMin.value.toInt() * 60).toLong()
+        totalTimeSeconds.longValue = durationSeconds
+
+        // 2. Set the ABSOLUTE end time (Current Time + Duration)
+        // This ensures if user switches tabs or exits, the target time doesn't change
+        sessionEndTimeMillis = System.currentTimeMillis() + (durationSeconds * 1000)
+
+        timeRemaining.longValue = durationSeconds
+        pauseAllowanceSeconds.longValue = durationSeconds / 12 // 5 mins pause for 60 mins work
         focusSeconds.longValue = 0
         distractionSeconds.longValue = 0
 
         state.value = SessionState.RUNNING
-        startTimer()
+        startTimerLoop()
     }
 
-    private fun startTimer() {
+    private fun startTimerLoop() {
         timerJob?.cancel()
         pauseJob?.cancel()
+
         timerJob = viewModelScope.launch {
-            while (timeRemaining.longValue > 0 && state.value == SessionState.RUNNING) {
-                delay(1000)
-                timeRemaining.longValue--
-                focusSeconds.longValue++
-            }
-            if (timeRemaining.longValue <= 0) {
-                state.value = SessionState.COMPLETION_SELECT
+            while (state.value == SessionState.RUNNING) {
+                val now = System.currentTimeMillis()
+                val remainingMillis = sessionEndTimeMillis - now
+
+                if (remainingMillis <= 0) {
+                    timeRemaining.longValue = 0
+                    state.value = SessionState.COMPLETION_SELECT
+                    break
+                } else {
+                    timeRemaining.longValue = remainingMillis / 1000
+                    // Calculate focus time as (Total - Remaining)
+                    focusSeconds.longValue = totalTimeSeconds.longValue - timeRemaining.longValue
+                }
+                delay(1000) // Update UI every second
             }
         }
     }
@@ -182,6 +188,10 @@ class HomeViewModel : ViewModel() {
     fun pauseSession() {
         state.value = SessionState.PAUSED
         timerJob?.cancel()
+
+        // Save how much time was left so we can add it back on resume
+        pauseRemainingMillis = sessionEndTimeMillis - System.currentTimeMillis()
+
         pauseJob = viewModelScope.launch {
             while(pauseAllowanceSeconds.longValue > 0 && state.value == SessionState.PAUSED) {
                 delay(1000)
@@ -195,7 +205,9 @@ class HomeViewModel : ViewModel() {
 
     fun resumeSession() {
         state.value = SessionState.RUNNING
-        startTimer()
+        // Reset the end time based on how much time was remaining
+        sessionEndTimeMillis = System.currentTimeMillis() + pauseRemainingMillis
+        startTimerLoop()
     }
 
     fun abandonSession() {
@@ -204,6 +216,22 @@ class HomeViewModel : ViewModel() {
         pauseJob?.cancel()
         selectedSubQuestIds.value = emptySet()
     }
+
+    // Called when user returns to app/tab
+    fun onAppForegrounded() {
+        // If we were running, we simply restart the loop.
+        // Because we use sessionEndTimeMillis (Absolute Time), the timer will
+        // "jump" to the correct time immediately, appearing as if it ran in background.
+        if (state.value == SessionState.RUNNING) {
+            startTimerLoop()
+        }
+    }
+
+    fun onAppBackgrounded() {
+        // No complex logic needed anymore due to absolute timestamp approach
+    }
+
+    // ==================== TASK & QUIZ LOGIC ====================
 
     fun toggleSubTaskSelection(subId: String) {
         val current = selectedSubQuestIds.value.toMutableSet()
@@ -221,26 +249,6 @@ class HomeViewModel : ViewModel() {
         state.value = SessionState.REPORTING
     }
 
-    fun onAppBackgrounded() {
-        lastBackgroundTimestamp = System.currentTimeMillis()
-    }
-
-    fun onAppForegrounded() {
-        if (state.value == SessionState.RUNNING && lastBackgroundTimestamp != 0L) {
-            val now = System.currentTimeMillis()
-            val diffSeconds = (now - lastBackgroundTimestamp) / 1000
-            if (diffSeconds > 0) {
-                distractionSeconds.longValue += diffSeconds
-                timeRemaining.longValue = (timeRemaining.longValue - diffSeconds).coerceAtLeast(0)
-            }
-            lastBackgroundTimestamp = 0L
-            if (timeRemaining.longValue <= 0) {
-                state.value = SessionState.COMPLETION_SELECT
-                timerJob?.cancel()
-            }
-        }
-    }
-
     fun generateQuiz(context: Context) {
         isGeneratingQuiz.value = true
         viewModelScope.launch {
@@ -250,13 +258,17 @@ class HomeViewModel : ViewModel() {
                 generatedQuiz.value = quiz
                 state.value = SessionState.QUIZ
             } else {
-                Toast.makeText(context, "AI Failed to generate quiz. Try adding more details.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "AI Failed to generate quiz. Write more details!", Toast.LENGTH_SHORT).show()
             }
             isGeneratingQuiz.value = false
         }
     }
 
-    fun completeQuiz(score: Int) {
+    fun completeQuiz(results: List<UserQuizResult>) {
+        lastQuizResults.value = results
+        val score = results.count { it.selectedOptionIndex == it.question.correctIndex }
+
+        // Rewards Logic
         val minutes = focusSeconds.longValue / 60.0
         val xpCalc = (0.95 * minutes) + (1.0 * score)
         val coinCalc = (1.0 * minutes) + (1.5 * score)
@@ -269,25 +281,61 @@ class HomeViewModel : ViewModel() {
         val currentTotalXp = userProfile.value?.xp ?: 0
         val currentTotalCoins = userProfile.value?.coins ?: 0
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val batch = db.batch()
-            activeQuests.value.forEach { quest ->
-                val relevantSubs = quest.subQuests.filter { completedSubQuestIds.value.contains(it.id) }
-                if (relevantSubs.isNotEmpty()) {
-                    val updatedSubQuests = quest.subQuests.map {
-                        if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
-                    }
-                    val isQuestDone = updatedSubQuests.all { it.isCompleted }
-                    val ref = db.collection("users").document(userId).collection("quests").document(quest.id)
-                    batch.update(ref, "subQuests", updatedSubQuests)
-                    if (isQuestDone) batch.update(ref, "status", 1)
+        // --- OPTIMISTIC UPDATE (UI Fix) ---
+        // Immediately filter out completed quests from the local UI list
+        // so they disappear while the server is updating.
+        val currentActive = activeQuests.value.toMutableList()
+        val iterator = currentActive.iterator()
+        while (iterator.hasNext()) {
+            val quest = iterator.next()
+            val relevantSubs = quest.subQuests.filter { completedSubQuestIds.value.contains(it.id) }
+
+            if (relevantSubs.isNotEmpty()) {
+                // Simulate the update locally
+                val updatedSubQuests = quest.subQuests.map {
+                    if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
+                }
+                // If all subquests are now done, remove this quest from the active list
+                if (updatedSubQuests.all { it.isCompleted }) {
+                    iterator.remove()
                 }
             }
+        }
+        activeQuests.value = currentActive
+        // ----------------------------------
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val batch = db.batch()
+
+            // Re-fetch original list for safe DB update
+            // We use the original activeQuests logic logic to build the batch
+            db.collection("users").document(userId).collection("quests")
+                .whereEqualTo("status", 0)
+                .get()
+                .await()
+                .documents.forEach { doc ->
+                    val quest = doc.toObject(Quest::class.java)
+                    if (quest != null) {
+                        val updatedSubQuests = quest.subQuests.map {
+                            if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
+                        }
+
+                        val isQuestDone = updatedSubQuests.all { it.isCompleted }
+                        val ref = db.collection("users").document(userId).collection("quests").document(quest.id)
+
+                        batch.update(ref, "subQuests", updatedSubQuests)
+                        if (isQuestDone) {
+                            batch.update(ref, "status", 1) // Mark as completed on Server
+                        }
+                    }
+                }
+
             val userRef = db.collection("users").document(userId)
             batch.update(userRef, mapOf(
                 "xp" to (currentTotalXp + newXpEarned),
                 "coins" to (currentTotalCoins + newCoinsEarned)
             ))
+
             try {
                 batch.commit().await()
                 Log.d("HomeViewModel", "Rewards Saved Successfully")
@@ -305,6 +353,7 @@ class HomeViewModel : ViewModel() {
         selectedSubQuestIds.value = emptySet()
         completedSubQuestIds.value = emptySet()
         sessionSummary.value = ""
+        lastQuizResults.value = emptyList()
     }
 
     override fun onCleared() {
@@ -347,3 +396,17 @@ fun parseObj(json: JSONObject): QuizQuestion {
         correctIndex = json.getInt("correctIndex")
     )
 }
+
+/*
+
+Copyright 2025 A^3*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at*
+http://www.apache.org/licenses/LICENSE-2.0*
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.*/
+

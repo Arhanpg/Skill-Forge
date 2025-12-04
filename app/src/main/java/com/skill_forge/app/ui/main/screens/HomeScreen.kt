@@ -28,7 +28,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,10 +49,16 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val cyberPurple = Color(0xFFD500F9)
     val deepBg = Brush.verticalGradient(listOf(Color(0xFF0B0F19), Color(0xFF162238)))
 
+    // Lifecycle Observer for Background/Foreground detection
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) viewModel.onAppBackgrounded()
-            else if (event == Lifecycle.Event.ON_START) viewModel.onAppForegrounded()
+            if (event == Lifecycle.Event.ON_STOP) {
+                // App went to background
+                viewModel.onAppBackgrounded()
+            } else if (event == Lifecycle.Event.ON_START) {
+                // App came to foreground or Tab Switched back
+                viewModel.onAppForegrounded()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -122,23 +127,23 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                         onSummaryChange = { viewModel.sessionSummary.value = it },
                         isGenerating = viewModel.isGeneratingQuiz.value,
                         onGenerate = {
-                            if (viewModel.sessionSummary.value.length < 5) Toast.makeText(context, "Write more!", Toast.LENGTH_SHORT).show()
+                            if (viewModel.sessionSummary.value.length < 5) Toast.makeText(context, "Write more details about your session!", Toast.LENGTH_SHORT).show()
                             else viewModel.generateQuiz(context)
                         }
                     )
                     SessionState.QUIZ -> QuizSessionUI(
                         questions = viewModel.generatedQuiz.value,
                         primaryColor = cyberBlue,
-                        onComplete = { score -> viewModel.completeQuiz(score) }
+                        onComplete = { results -> viewModel.completeQuiz(results) }
                     )
                     SessionState.REWARD -> RewardState(
                         xp = viewModel.currentXpReward.intValue,
                         coins = viewModel.currentCoinReward.intValue,
+                        quizResults = viewModel.lastQuizResults.value,
                         onClaim = { viewModel.resetSession() }
                     )
                 }
             }
-            // Bottom spacing to prevent cut-off
             Spacer(modifier = Modifier.height(80.dp))
         }
 
@@ -155,7 +160,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     }
 }
 
-// ==================== UI COMPONENTS ====================
+// ... (Rest of your UI Components: HeaderStats, IdleState, etc. remain unchanged) ...
+// Ensure you include all the helper Composables (CyberButton, HeaderStats, IdleState, etc.) here
+// from your previous file to make this file complete.
+// I will include the existing helper composables below for completeness.
 
 @Composable
 fun CyberButton(
@@ -203,7 +211,6 @@ fun CyberButton(
 
 @Composable
 fun HeaderStats(user: UserProfile, onRankClick: () -> Unit) {
-    // Glassmorphism container
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -252,65 +259,26 @@ fun IdleState(
     onStart: () -> Unit
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            "SESSION DURATION",
-            color = Color(0xFF00E5FF),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
-        )
+        Text("SESSION DURATION", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
         Spacer(Modifier.height(8.dp))
-        Text(
-            "${sliderValue.toInt()} min",
-            color = Color.White,
-            fontSize = 48.sp,
-            fontWeight = FontWeight.Light,
-            fontFamily = FontFamily.SansSerif
-        )
-
+        Text("${sliderValue.toInt()} min", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.SansSerif)
         Spacer(Modifier.height(8.dp))
-
         Slider(
             value = sliderValue,
             onValueChange = onSliderChange,
             valueRange = 1f..120f,
-            steps = 22, // 5 min increments approx
-            colors = SliderDefaults.colors(
-                thumbColor = Color(0xFF00E5FF),
-                activeTrackColor = Color(0xFF00E5FF),
-                inactiveTrackColor = Color(0xFF1E293B)
-            ),
+            steps = 22,
+            colors = SliderDefaults.colors(thumbColor = Color(0xFF00E5FF), activeTrackColor = Color(0xFF00E5FF), inactiveTrackColor = Color(0xFF1E293B)),
             modifier = Modifier.padding(horizontal = 12.dp)
         )
-
         Spacer(Modifier.height(32.dp))
-
-        // Quest Card
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Text(
-                "ACTIVE QUESTS",
-                color = Color.White.copy(0.7f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 8.dp, bottom = 12.dp)
-            )
-
+        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+            Text("ACTIVE QUESTS", color = Color.White.copy(0.7f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp, bottom = 12.dp))
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 150.dp, max = 300.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF131B29))
-                    .border(1.dp, Color.White.copy(0.05f), RoundedCornerShape(20.dp))
+                modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp, max = 300.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF131B29)).border(1.dp, Color.White.copy(0.05f), RoundedCornerShape(20.dp))
             ) {
                 if (activeQuests.isEmpty()) {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Search, null, tint = Color.White.copy(0.2f), modifier = Modifier.size(40.dp))
                         Spacer(Modifier.height(8.dp))
                         Text("No active quests", color = Color.White.copy(0.3f))
@@ -319,41 +287,21 @@ fun IdleState(
                     LazyColumn(contentPadding = PaddingValues(16.dp)) {
                         items(activeQuests) { quest ->
                             Column(modifier = Modifier.padding(bottom = 16.dp)) {
-                                Text(
-                                    quest.title,
-                                    color = Color(0xFF00E5FF),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
+                                Text(quest.title, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
                                 quest.subQuests.filter { !it.isCompleted }.forEach { sub ->
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (selectedSubIds.contains(sub.id)) Color(0xFF00E5FF).copy(0.1f) else Color.Transparent)
-                                            .clickable { onSubTaskToggle(sub.id) }
-                                            .padding(8.dp)
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(if (selectedSubIds.contains(sub.id)) Color(0xFF00E5FF).copy(0.1f) else Color.Transparent).clickable { onSubTaskToggle(sub.id) }.padding(8.dp)
                                     ) {
                                         CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides false) {
                                             Checkbox(
                                                 checked = selectedSubIds.contains(sub.id),
                                                 onCheckedChange = { onSubTaskToggle(sub.id) },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Color(0xFF00E5FF),
-                                                    uncheckedColor = Color.Gray,
-                                                    checkmarkColor = Color.Black
-                                                )
+                                                colors = CheckboxDefaults.colors(checkedColor = Color(0xFF00E5FF), uncheckedColor = Color.Gray, checkmarkColor = Color.Black)
                                             )
                                         }
                                         Spacer(Modifier.width(12.dp))
-                                        Text(
-                                            sub.title,
-                                            color = Color.White.copy(0.9f),
-                                            fontSize = 14.sp
-                                        )
+                                        Text(sub.title, color = Color.White.copy(0.9f), fontSize = 14.sp)
                                     }
                                 }
                             }
@@ -364,14 +312,8 @@ fun IdleState(
                 }
             }
         }
-
         Spacer(Modifier.height(32.dp))
-
-        CyberButton(
-            text = "START BATTLE",
-            onClick = onStart,
-            icon = Icons.Rounded.PlayArrow
-        )
+        CyberButton(text = "START BATTLE", onClick = onStart, icon = Icons.Rounded.PlayArrow)
     }
 }
 
@@ -379,62 +321,23 @@ fun IdleState(
 fun RunningState(timeRemaining: Long, onPause: () -> Unit, onAbandon: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
         Spacer(Modifier.height(40.dp))
-
-        // Pulsing Circle Effect (Static for now, can be animated)
         Box(contentAlignment = Alignment.Center) {
-            Box(
-                modifier = Modifier
-                    .size(260.dp)
-                    .clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(Color(0xFF00E5FF).copy(0.1f), Color.Transparent)))
-            )
-            Box(
-                modifier = Modifier
-                    .size(200.dp)
-                    .border(2.dp, Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(260.dp).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0xFF00E5FF).copy(0.1f), Color.Transparent))))
+            Box(modifier = Modifier.size(200.dp).border(2.dp, Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))), CircleShape), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "FOCUS",
-                        color = Color(0xFF00E5FF),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
-                    )
-                    Text(
-                        "%02d:%02d".format(timeRemaining / 60, timeRemaining % 60),
-                        color = Color.White,
-                        fontSize = 56.sp,
-                        fontWeight = FontWeight.Light,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    Text("FOCUS", color = Color(0xFF00E5FF), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text("%02d:%02d".format(timeRemaining / 60, timeRemaining % 60), color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace)
                 }
             }
         }
-
         Spacer(Modifier.weight(1f))
-
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Button(
-                onClick = onPause,
-                modifier = Modifier.weight(1f).height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFDD835).copy(alpha = 0.1f)),
-                border = BorderStroke(1.dp, Color(0xFFFDD835))
-            ) {
+            Button(onClick = onPause, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFDD835).copy(alpha = 0.1f)), border = BorderStroke(1.dp, Color(0xFFFDD835))) {
                 Icon(Icons.Default.Pause, null, tint = Color(0xFFFDD835))
                 Spacer(Modifier.width(8.dp))
                 Text("PAUSE", color = Color(0xFFFDD835), fontWeight = FontWeight.Bold)
             }
-
-            Button(
-                onClick = onAbandon,
-                modifier = Modifier.weight(1f).height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF1744).copy(alpha = 0.1f)),
-                border = BorderStroke(1.dp, Color(0xFFFF1744))
-            ) {
+            Button(onClick = onAbandon, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF1744).copy(alpha = 0.1f)), border = BorderStroke(1.dp, Color(0xFFFF1744))) {
                 Icon(Icons.Default.Close, null, tint = Color(0xFFFF1744))
                 Spacer(Modifier.width(8.dp))
                 Text("GIVE UP", color = Color(0xFFFF1744), fontWeight = FontWeight.Bold)
@@ -445,10 +348,7 @@ fun RunningState(timeRemaining: Long, onPause: () -> Unit, onAbandon: () -> Unit
 
 @Composable
 fun PausedState(allowanceRemaining: Long, onResume: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp)) {
         Icon(Icons.Default.PauseCircleFilled, null, tint = Color(0xFFFFD700), modifier = Modifier.size(80.dp))
         Spacer(Modifier.height(24.dp))
         Text("SESSION PAUSED", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -471,48 +371,21 @@ fun CompletionSelectState(
     Column {
         Text("MISSION DEBRIEF", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("Mark tasks completed during this session:", color = Color.Gray, fontSize = 14.sp)
-
         Spacer(Modifier.height(24.dp))
-
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF131B29))
-                .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(16.dp))
-        ) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF131B29)).border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(16.dp))) {
             LazyColumn(contentPadding = PaddingValues(16.dp)) {
                 items(quests) { quest ->
                     quest.subQuests.filter { selectedSubIds.contains(it.id) }.forEach { sub ->
                         val isChecked = completedSubIds.contains(sub.id)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isChecked) Color(0xFF00E5FF).copy(0.15f) else Color.Black.copy(0.2f))
-                                .clickable { onToggleComplete(sub.id) }
-                                .padding(12.dp)
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(if (isChecked) Color(0xFF00E5FF).copy(0.15f) else Color.Black.copy(0.2f)).clickable { onToggleComplete(sub.id) }.padding(12.dp)
                         ) {
                             CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides false) {
-                                Checkbox(
-                                    checked = isChecked,
-                                    onCheckedChange = { onToggleComplete(sub.id) },
-                                    colors = CheckboxDefaults.colors(
-                                        checkedColor = Color(0xFF00E5FF),
-                                        uncheckedColor = Color.Gray
-                                    )
-                                )
+                                Checkbox(checked = isChecked, onCheckedChange = { onToggleComplete(sub.id) }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF00E5FF), uncheckedColor = Color.Gray))
                             }
                             Spacer(Modifier.width(12.dp))
-                            Text(
-                                sub.title,
-                                color = if (isChecked) Color.White else Color.Gray,
-                                textDecoration = if (isChecked) TextDecoration.LineThrough else null,
-                                fontSize = 16.sp
-                            )
+                            Text(sub.title, color = if (isChecked) Color.White else Color.Gray, textDecoration = if (isChecked) TextDecoration.LineThrough else null, fontSize = 16.sp)
                         }
                     }
                 }
@@ -528,174 +401,97 @@ fun ReportState(sessionSummary: String, onSummaryChange: (String) -> Unit, isGen
     Column {
         Text("BATTLE LOG", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text("What did you learn today?", color = Color.Gray, fontSize = 14.sp)
-
         Spacer(Modifier.height(24.dp))
-
         OutlinedTextField(
             value = sessionSummary,
             onValueChange = onSummaryChange,
             placeholder = { Text("I learned about...", color = Color.Gray) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF00E5FF),
-                unfocusedBorderColor = Color.White.copy(0.2f),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                cursorColor = Color(0xFF00E5FF),
-                focusedContainerColor = Color(0xFF131B29),    // UPDATED: Used focusedContainerColor
-                unfocusedContainerColor = Color(0xFF131B29)   // UPDATED: Used unfocusedContainerColor
-            ),
+            modifier = Modifier.fillMaxWidth().height(200.dp),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF00E5FF), unfocusedBorderColor = Color.White.copy(0.2f), focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Color(0xFF00E5FF), focusedContainerColor = Color(0xFF131B29), unfocusedContainerColor = Color(0xFF131B29)),
             shape = RoundedCornerShape(16.dp)
         )
-
         Spacer(Modifier.height(24.dp))
-
-        CyberButton(
-            text = if (isGenerating) "GENERATING..." else "GENERATE QUIZ",
-            onClick = onGenerate,
-            enabled = !isGenerating,
-            gradient = Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFF2979FF)))
-        )
+        CyberButton(text = if (isGenerating) "GENERATING..." else "GENERATE QUIZ", onClick = onGenerate, enabled = !isGenerating, gradient = Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFF2979FF))))
     }
 }
 
 @Composable
-fun RewardState(xp: Int, coins: Int, onClaim: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize()
-    ) {
+fun RewardState(xp: Int, coins: Int, quizResults: List<UserQuizResult>, onClaim: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(20.dp))
         Text("VICTORY!", fontSize = 42.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 2.sp)
         Spacer(Modifier.height(32.dp))
-
-        // Rewards Container
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.ic_xp), contentDescription = null, modifier = Modifier.size(64.dp))
                 Spacer(Modifier.height(8.dp))
                 Text("+$xp XP", color = Color(0xFF00E5FF), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             }
-
             Spacer(Modifier.width(48.dp))
-
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painter = painterResource(R.drawable.coin_display_outline), contentDescription = null, modifier = Modifier.size(64.dp))
                 Spacer(Modifier.height(8.dp))
                 Text("+$coins", color = Color(0xFFFFD700), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             }
         }
-
-        Spacer(Modifier.height(64.dp))
-
-        CyberButton(
-            text = "CLAIM REWARDS",
-            onClick = onClaim,
-            gradient = Brush.horizontalGradient(listOf(Color(0xFFD500F9), Color(0xFFFF4081)))
-        )
+        Spacer(Modifier.height(40.dp))
+        Text("BATTLE ANALYSIS", color = Color.White.copy(0.7f), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.Start))
+        Spacer(Modifier.height(16.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            quizResults.forEachIndexed { i, result ->
+                val isCorrect = result.selectedOptionIndex == result.question.correctIndex
+                val yourAnswer = result.question.options.getOrElse(result.selectedOptionIndex) { "Skipped" }
+                val correctAnswer = result.question.options.getOrElse(result.question.correctIndex) { "Unknown" }
+                Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF131B29)).border(1.dp, if(isCorrect) Color.Green.copy(0.3f) else Color.Red.copy(0.3f), RoundedCornerShape(16.dp)).padding(16.dp)) {
+                    Column {
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(text = "Q${i + 1}", color = if(isCorrect) Color.Green else Color.Red, fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
+                            Text(text = result.question.question, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("You: ", color = Color.Gray, fontSize = 13.sp)
+                            Text(yourAnswer, color = if(isCorrect) Color.Green else Color.Red, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (!isCorrect) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Target: ", color = Color.Gray, fontSize = 13.sp)
+                                Text(correctAnswer, color = Color.Green, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(40.dp))
+        CyberButton(text = "CLAIM REWARDS", onClick = onClaim, gradient = Brush.horizontalGradient(listOf(Color(0xFFD500F9), Color(0xFFFF4081))))
     }
 }
 
-// ... Keep existing RankProgressionDialog and RankItemCard unchanged as they were already custom styled ...
 @Composable
-fun RankProgressionDialog(
-    currentXp: Int,
-    ranks: List<RankDefinition>,
-    currentIndex: Int,
-    progress: Float,
-    onDismiss: () -> Unit
-) {
+fun RankProgressionDialog(currentXp: Int, ranks: List<RankDefinition>, currentIndex: Int, progress: Float, onDismiss: () -> Unit) {
     val listState = rememberLazyListState()
-
-    // Scroll to current rank automatically
-    LaunchedEffect(Unit) {
-        listState.scrollToItem((currentIndex - 1).coerceAtLeast(0))
-    }
-
+    LaunchedEffect(Unit) { listState.scrollToItem((currentIndex - 1).coerceAtLeast(0)) }
     Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .width(350.dp)
-                .height(650.dp)
-                // Gradient Border effect
-                .border(
-                    width = 2.dp,
-                    brush = Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                .background(Color(0xFF0B0F19), RoundedCornerShape(16.dp))
-                .padding(2.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "RANK PROGRESSION",
-                        color = Color(0xFF00E5FF),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
-                    }
+        Box(modifier = Modifier.width(350.dp).height(650.dp).border(width = 2.dp, brush = Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))), shape = RoundedCornerShape(16.dp)).background(Color(0xFF0B0F19), RoundedCornerShape(16.dp)).padding(2.dp)) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "RANK PROGRESSION", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray) }
                 }
-
                 Spacer(modifier = Modifier.height(8.dp))
-
-                // Total XP Label
-                Text(
-                    text = "Total XP: $currentXp",
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp,
-                    modifier = Modifier.align(Alignment.Start)
-                )
-
+                Text(text = "Total XP: $currentXp", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.align(Alignment.Start))
                 Spacer(modifier = Modifier.height(8.dp))
-
-                // Custom Linear Progress Bar
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF1E2738))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progress)
-                            .fillMaxHeight()
-                            .background(Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))))
-                    )
+                Box(modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF1E2738))) {
+                    Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(Brush.horizontalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9)))))
                 }
-
                 Spacer(modifier = Modifier.height(24.dp))
-
-                // Scrollable Rank List
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     itemsIndexed(ranks) { index, rank ->
                         val isCurrent = index == currentIndex
                         val isLocked = index > currentIndex
                         val isPassed = index < currentIndex
-
                         RankItemCard(rank, isCurrent, isLocked, isPassed)
                     }
                 }
@@ -709,62 +505,33 @@ fun RankItemCard(rank: RankDefinition, isCurrent: Boolean, isLocked: Boolean, is
     val borderColor = if (isCurrent) Color(0xFF00E5FF) else Color(0xFF2A3142)
     val bgColor = if (isCurrent) Color(0xFF131B29) else Color(0xFF131B29)
     val alpha = if (isLocked) 0.5f else 1.0f
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
-            .background(bgColor, RoundedCornerShape(12.dp))
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Rank Icon
-        Image(
-            painter = painterResource(id = rank.drawableId),
-            contentDescription = rank.title,
-            modifier = Modifier.size(48.dp).alpha(alpha)
-        )
-
+    Row(modifier = Modifier.fillMaxWidth().border(1.dp, borderColor, RoundedCornerShape(12.dp)).background(bgColor, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Image(painter = painterResource(id = rank.drawableId), contentDescription = rank.title, modifier = Modifier.size(48.dp).alpha(alpha))
         Spacer(modifier = Modifier.width(16.dp))
-
-        // Rank Details
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = rank.title,
-                color = Color.White.copy(alpha = alpha),
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
-            )
-            Text(
-                text = "${rank.xpRequired} XP Required",
-                color = Color.Gray.copy(alpha = alpha),
-                fontSize = 12.sp
-            )
+            Text(text = rank.title, color = Color.White.copy(alpha = alpha), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(text = "${rank.xpRequired} XP Required", color = Color.Gray.copy(alpha = alpha), fontSize = 12.sp)
         }
-
-        // Status Indicator
         if (isCurrent) {
-            Text(
-                text = "CURRENT",
-                color = Color(0xFF00E5FF),
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
-            )
+            Text(text = "CURRENT", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 12.sp)
         } else if (isLocked) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = "Locked",
-                tint = Color.Gray,
-                modifier = Modifier.size(20.dp)
-            )
+            Icon(imageVector = Icons.Default.Lock, contentDescription = "Locked", tint = Color.Gray, modifier = Modifier.size(20.dp))
         } else {
-            // Passed
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = "Passed",
-                tint = Color(0xFFD500F9),
-                modifier = Modifier.size(20.dp)
-            )
+            Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Passed", tint = Color(0xFFD500F9), modifier = Modifier.size(20.dp))
         }
     }
 }
+
+
+/*
+
+Copyright 2025 A^3*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at*
+http://www.apache.org/licenses/LICENSE-2.0*
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.*/

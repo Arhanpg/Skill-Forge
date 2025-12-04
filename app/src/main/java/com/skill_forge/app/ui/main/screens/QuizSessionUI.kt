@@ -12,21 +12,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skill_forge.app.ui.main.models.QuizQuestion
+import com.skill_forge.app.ui.main.models.UserQuizResult
 
 @Composable
 fun QuizSessionUI(
     questions: List<QuizQuestion>,
     primaryColor: Color,
-    onComplete: (Int) -> Unit
+    onComplete: (List<UserQuizResult>) -> Unit // Changed signature
 ) {
     var index by remember { mutableIntStateOf(0) }
-    var score by remember { mutableIntStateOf(0) }
     var selectedOptionIndex by remember { mutableIntStateOf(-1) }
+
+    // Track answers
+    val userResults = remember { mutableStateListOf<UserQuizResult>() }
 
     if (questions.isEmpty()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("No questions generated.", color = Color.Red)
-            Button(onClick = { onComplete(0) }) { Text("Skip") }
+            Button(onClick = { onComplete(emptyList()) }) { Text("Skip") }
         }
         return
     }
@@ -34,7 +37,7 @@ fun QuizSessionUI(
     val currentQ = questions[index]
 
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        Text("⚔️ KNOWLEDGE DUEL", color = Color(0xFFFFFFFF), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("⚔️ KNOWLEDGE DUEL", color = Color(0xFFFFD700), fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
         LinearProgressIndicator(
@@ -66,12 +69,15 @@ fun QuizSessionUI(
 
         Button(
             onClick = {
-                if (selectedOptionIndex == currentQ.correctIndex) score++
+                // Save Result
+                userResults.add(UserQuizResult(currentQ, selectedOptionIndex))
+
                 if (index < questions.size - 1) {
                     index++
                     selectedOptionIndex = -1
                 } else {
-                    onComplete(score)
+                    // Complete
+                    onComplete(userResults.toList())
                 }
             },
             enabled = selectedOptionIndex != -1,
