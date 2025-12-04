@@ -1,3 +1,15 @@
+/*
+
+Copyright 2025 A^3*
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at*
+http://www.apache.org/licenses/LICENSE-2.0*
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.*/
 package com.skill_forge.app.network
 
 import android.util.Log
@@ -20,10 +32,10 @@ interface QuizApi {
 // ==================== SERVICE ====================
 object GeminiService {
 
-    // 🔴 IMPORTANT: Update this NGROK URL every time you restart your Python Colab script
-    private const val BASE_URL = "https://ian-unmumbling-isobel.ngrok-free.dev/"
+    // IMPORTANT: Update this NGROK URL every time you restart your Python Colab script
+    private const val BASE_URL = ""//update this with the url obtained
 
-    // 🔴 FIX: Custom HTTP Client with Extended Timeouts
+    // FIX: Custom HTTP Client with Extended Timeouts
     // This prevents the app from crashing while waiting for the AI to generate answers.
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -99,15 +111,3 @@ object GeminiService {
     }
 }
 
-/*
-
-Copyright 2025 A^3*
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at*
-http://www.apache.org/licenses/LICENSE-2.0*
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.*/
