@@ -268,7 +268,7 @@ class HomeViewModel : ViewModel() {
         lastQuizResults.value = results
         val score = results.count { it.selectedOptionIndex == it.question.correctIndex }
 
-        // Rewards Logic
+        // 1. Calculate Rewards
         val minutes = focusSeconds.longValue / 60.0
         val xpCalc = (0.95 * minutes) + (1.0 * score)
         val coinCalc = (1.0 * minutes) + (1.5 * score)
@@ -281,68 +281,90 @@ class HomeViewModel : ViewModel() {
         val currentTotalXp = userProfile.value?.xp ?: 0
         val currentTotalCoins = userProfile.value?.coins ?: 0
 
-        // --- OPTIMISTIC UPDATE (UI Fix) ---
-        // Immediately filter out completed quests from the local UI list
-        // so they disappear while the server is updating.
+        // 2. Optimistic Update (Update UI immediately)
+        // This keeps the UI responsive while the network request happens
         val currentActive = activeQuests.value.toMutableList()
         val iterator = currentActive.iterator()
         while (iterator.hasNext()) {
             val quest = iterator.next()
-            val relevantSubs = quest.subQuests.filter { completedSubQuestIds.value.contains(it.id) }
+            // Check if this quest has any sub-tasks that we marked as completed
+            val hasUpdates = quest.subQuests.any { completedSubQuestIds.value.contains(it.id) }
 
-            if (relevantSubs.isNotEmpty()) {
-                // Simulate the update locally
+            if (hasUpdates) {
                 val updatedSubQuests = quest.subQuests.map {
                     if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
                 }
-                // If all subquests are now done, remove this quest from the active list
+                // If all are done, remove from active list locally
                 if (updatedSubQuests.all { it.isCompleted }) {
                     iterator.remove()
                 }
             }
         }
         activeQuests.value = currentActive
-        // ----------------------------------
 
+        // 3. Database Update (Background Thread)
         viewModelScope.launch(Dispatchers.IO) {
             val batch = db.batch()
+            var isBatchEmpty = true
 
-            // Re-fetch original list for safe DB update
-            // We use the original activeQuests logic logic to build the batch
-            db.collection("users").document(userId).collection("quests")
-                .whereEqualTo("status", 0)
-                .get()
-                .await()
-                .documents.forEach { doc ->
+            try {
+                // Fetch fresh data to ensure we don't overwrite with stale data
+                val snapshot = db.collection("users").document(userId).collection("quests")
+                    .whereEqualTo("status", 0)
+                    .get()
+                    .await()
+
+                snapshot.documents.forEach { doc ->
                     val quest = doc.toObject(Quest::class.java)
                     if (quest != null) {
-                        val updatedSubQuests = quest.subQuests.map {
-                            if (completedSubQuestIds.value.contains(it.id)) it.copy(isCompleted = true) else it
+                        var questModified = false
+
+                        // Create a new list of sub-quests based on completion status
+                        val updatedSubQuests = quest.subQuests.map { sub ->
+                            // Only update if it's in our completed set AND not already marked true
+                            if (completedSubQuestIds.value.contains(sub.id) && !sub.isCompleted) {
+                                questModified = true
+                                sub.copy(isCompleted = true)
+                            } else {
+                                sub
+                            }
                         }
 
-                        val isQuestDone = updatedSubQuests.all { it.isCompleted }
-                        val ref = db.collection("users").document(userId).collection("quests").document(quest.id)
+                        // Only add to batch if data actually changed
+                        if (questModified) {
+                            val questRef = db.collection("users").document(userId).collection("quests").document(quest.id)
 
-                        batch.update(ref, "subQuests", updatedSubQuests)
-                        if (isQuestDone) {
-                            batch.update(ref, "status", 1) // Mark as completed on Server
+                            // Update the list
+                            batch.update(questRef, "subQuests", updatedSubQuests)
+
+                            // Check if the Quest is now fully complete
+                            val isQuestDone = updatedSubQuests.all { it.isCompleted }
+                            if (isQuestDone) {
+                                batch.update(questRef, "status", 1)
+                            }
+                            isBatchEmpty = false
+                            Log.d("HomeViewModel", "Queueing update for Quest: ${quest.title}")
                         }
                     }
                 }
 
-            val userRef = db.collection("users").document(userId)
-            batch.update(userRef, mapOf(
-                "xp" to (currentTotalXp + newXpEarned),
-                "coins" to (currentTotalCoins + newCoinsEarned)
-            ))
+                // Update User Profile (XP & Coins)
+                val userRef = db.collection("users").document(userId)
+                batch.update(userRef, mapOf(
+                    "xp" to (currentTotalXp + newXpEarned),
+                    "coins" to (currentTotalCoins + newCoinsEarned)
+                ))
 
-            try {
+                // Commit changes
                 batch.commit().await()
-                Log.d("HomeViewModel", "Rewards Saved Successfully")
+                Log.d("HomeViewModel", "Batch commit successful. Rewards and Tasks updated.")
+
             } catch (e: Exception) {
-                Log.e("HomeViewModel", "Error saving rewards", e)
+                Log.e("HomeViewModel", "Error saving rewards/tasks", e)
             }
         }
+
+        // Move to Reward Screen
         state.value = SessionState.REWARD
     }
 

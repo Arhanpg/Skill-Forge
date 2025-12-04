@@ -1,14 +1,16 @@
 package com.skill_forge.app.ui.main.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,22 +25,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -288,7 +291,13 @@ fun TaskScreen() {
                         val quest = activeQuestForQuiz!!
                         val batch = db.batch()
                         val questRef = db.collection("users").document(userId).collection("quests").document(quest.id)
+
+                        // Update status to completed (1)
                         batch.update(questRef, "status", 1)
+                        // Also mark all subquests as true just in case
+                        val completedSubs = quest.subQuests.map { it.copy(isCompleted = true) }
+                        batch.update(questRef, "subQuests", completedSubs)
+
                         batch.commit().addOnSuccessListener {
                             Toast.makeText(context, "Quest Completed!", Toast.LENGTH_SHORT).show()
                             activeQuestForQuiz = null
@@ -308,7 +317,7 @@ fun CyberDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight()
+                .heightIn(min = 200.dp, max = 650.dp) // Dynamic height with max limit
                 .border(
                     width = 2.dp,
                     brush = Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))),
@@ -391,7 +400,10 @@ fun CyberQuestCard(
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
                 progress = { quest.progress },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(CircleShape),
                 color = statusColor,
                 trackColor = Color.White.copy(0.05f)
             )
@@ -442,7 +454,9 @@ fun CyberQuestCard(
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         contentPadding = PaddingValues(),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
                         Box(
                             modifier = Modifier
@@ -494,7 +508,6 @@ fun QuickQuestContent(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
                         containerColor = Color.Transparent,
                         labelColor = Color.Gray
                     ),
-                    // FIXED: Added enabled and selected parameters
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = selectedDifficulty == diff,
@@ -522,7 +535,9 @@ fun QuickQuestContent(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
                     onQuestCreated(Quest(title = title, subQuests = subs, difficulty = selectedDifficulty.name))
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             colors = ButtonDefaults.buttonColors(containerColor = cyberBlue),
             shape = RoundedCornerShape(12.dp)
         ) {
@@ -555,7 +570,9 @@ fun QuizContextContent(questTitle: String, onConfirm: (String) -> Unit) {
         Button(
             onClick = { if(description.isNotBlank()) onConfirm(description) },
             colors = ButtonDefaults.buttonColors(containerColor = cyberBlue),
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
             Text("INITIATE QUIZ", color = Color.Black, fontWeight = FontWeight.Bold)
@@ -566,67 +583,185 @@ fun QuizContextContent(questTitle: String, onConfirm: (String) -> Unit) {
 @Composable
 fun QuizContent(questions: List<QuizQuestion>, onDismiss: () -> Unit, onSuccess: () -> Unit) {
     var currentQuestionIndex by remember { mutableIntStateOf(0) }
-    var score by remember { mutableIntStateOf(0) }
+    // Track user answers: Map<QuestionIndex, SelectedOptionIndex>
+    var userAnswers by remember { mutableStateOf(mutableMapOf<Int, Int>()) }
     var isFinished by remember { mutableStateOf(false) }
     val cyberBlue = Color(0xFF00E5FF)
 
-    Column(Modifier.padding(24.dp).height(450.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (!isFinished) {
-            val q = questions.getOrNull(currentQuestionIndex)
-            if (q != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("QUESTION ${currentQuestionIndex + 1}/${questions.size}", color = cyberBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
+    // Calculate score dynamically
+    val score = remember(userAnswers) {
+        userAnswers.count { (index, selected) ->
+            questions.getOrNull(index)?.correctIndex == selected
+        }
+    }
 
-                Spacer(Modifier.height(16.dp))
-                Text(q.question, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(24.dp))
+    Column(
+        Modifier
+            .padding(24.dp)
+            .fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AnimatedContent(
+            targetState = isFinished,
+            transitionSpec = { fadeIn() + slideInVertically { it / 20 } togetherWith fadeOut() + slideOutVertically { -it / 20 } },
+            label = "QuizState"
+        ) { finished ->
+            if (!finished) {
+                // --- ACTIVE QUIZ VIEW ---
+                val q = questions.getOrNull(currentQuestionIndex)
+                if (q != null) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                "QUESTION ${currentQuestionIndex + 1}/${questions.size}",
+                                color = cyberBlue,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
 
-                q.options.forEachIndexed { index, option ->
-                    OutlinedButton(
-                        onClick = {
-                            if (index == q.correctIndex) score++
-                            if (currentQuestionIndex < questions.size - 1) {
-                                currentQuestionIndex++
-                            } else {
-                                isFinished = true
+                        Spacer(Modifier.height(16.dp))
+                        Text(q.question, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(24.dp))
+
+                        q.options.forEachIndexed { index, option ->
+                            OutlinedButton(
+                                onClick = {
+                                    // Save answer
+                                    userAnswers[currentQuestionIndex] = index
+
+                                    if (currentQuestionIndex < questions.size - 1) {
+                                        currentQuestionIndex++
+                                    } else {
+                                        isFinished = true
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = BorderStroke(1.dp, Color.White.copy(0.2f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    option,
+                                    modifier = Modifier.padding(8.dp),
+                                    textAlign = TextAlign.Start
+                                )
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = BorderStroke(1.dp, Color.White.copy(0.2f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(option, modifier = Modifier.padding(8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+                        }
                     }
                 }
-            }
-        } else {
-            // Results
-            val passed = score >= (questions.size / 2) // Pass if >= 50%
-            val resultColor = if (passed) Color(0xFF00E676) else Color(0xFFFF1744)
+            } else {
+                // --- SUMMARY / RESULT VIEW ---
+                val passed = score >= (questions.size / 2)
+                val resultColor = if (passed) Color(0xFF00E676) else Color(0xFFFF1744)
 
-            Spacer(Modifier.height(40.dp))
-            Icon(
-                if (passed) Icons.Default.Check else Icons.Default.Close,
-                null,
-                tint = resultColor,
-                modifier = Modifier.size(64.dp).background(resultColor.copy(0.1f), CircleShape).padding(12.dp)
-            )
+                Column(
+                    modifier = Modifier.fillMaxHeight(), // Take available space
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Icon(
+                            if (passed) Icons.Default.Check else Icons.Default.Close,
+                            null,
+                            tint = resultColor,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(resultColor.copy(0.1f), CircleShape)
+                                .padding(12.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (passed) "QUEST COMPLETE" else "QUEST FAILED",
+                            color = resultColor,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp
+                        )
+                        Text("Score: $score/${questions.size}", color = Color.White.copy(0.7f))
+                    }
 
-            Spacer(Modifier.height(24.dp))
-            Text(if (passed) "QUEST COMPLETE" else "QUEST FAILED", color = resultColor, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Spacer(Modifier.height(8.dp))
-            Text("Score: $score/${questions.size}", color = Color.White.copy(0.7f))
+                    Spacer(Modifier.height(16.dp))
+                    Text("MISSION REPORT", color = cyberBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
 
-            Spacer(Modifier.height(40.dp))
-            Button(
-                onClick = { if (passed) onSuccess() else onDismiss() },
-                colors = ButtonDefaults.buttonColors(containerColor = resultColor),
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(if (passed) "CLAIM VICTORY" else "RETURN TO BASE", color = Color.Black, fontWeight = FontWeight.Bold)
+                    // Scrollable Summary List
+                    Box(
+                        modifier = Modifier
+                            .weight(1f) // Important for scrolling inside Dialog
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black.copy(0.3f))
+                            .border(1.dp, Color.White.copy(0.1f), RoundedCornerShape(12.dp))
+                    ) {
+                        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            items(questions.size) { index ->
+                                val question = questions[index]
+                                val userSelected = userAnswers[index] ?: -1
+                                val isCorrect = userSelected == question.correctIndex
+                                val correctText = question.options.getOrElse(question.correctIndex) { "" }
+                                val userText = question.options.getOrElse(userSelected) { "Skipped" }
+
+                                Column {
+                                    Row(verticalAlignment = Alignment.Top) {
+                                        Icon(
+                                            if(isCorrect) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                            null,
+                                            tint = if(isCorrect) Color(0xFF00E676) else Color(0xFFFF1744),
+                                            modifier = Modifier.size(16.dp).offset(y = 2.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Q${index+1}: ${question.question}",
+                                            color = Color.White.copy(0.9f),
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp
+                                        )
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    // User Answer
+                                    Text(
+                                        "You: $userText",
+                                        color = if(isCorrect) Color(0xFF00E676) else Color(0xFFFF1744),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(start = 24.dp)
+                                    )
+
+                                    // Correct Answer (if wrong)
+                                    if (!isCorrect) {
+                                        Text(
+                                            "Correct: $correctText",
+                                            color = Color(0xFF00E676),
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(start = 24.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Button(
+                        onClick = { if (passed) onSuccess() else onDismiss() },
+                        colors = ButtonDefaults.buttonColors(containerColor = resultColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            if (passed) "CLAIM VICTORY" else "RETURN TO BASE",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
@@ -640,7 +775,6 @@ fun CyberTextField(value: String, onValueChange: (String) -> Unit, label: String
         label = { Text(label, color = Color.Gray) },
         modifier = Modifier.fillMaxWidth(),
         minLines = minLines,
-        // FIXED: Using focusedContainerColor / unfocusedContainerColor
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = Color(0xFF00E5FF),
             unfocusedBorderColor = Color.White.copy(0.2f),
@@ -653,17 +787,3 @@ fun CyberTextField(value: String, onValueChange: (String) -> Unit, label: String
         shape = RoundedCornerShape(12.dp)
     )
 }
-
-
-/*
-
-Copyright 2025 A^3*
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at*
-http://www.apache.org/licenses/LICENSE-2.0*
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.*/
