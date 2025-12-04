@@ -28,8 +28,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.skill_forge.app.ui.main.models.UserProfile
 import com.skill_forge.app.R
+import com.skill_forge.app.ui.main.models.UserProfile
+
 @Composable
 fun AvatarPickerDialog(
     currentProfile: UserProfile,

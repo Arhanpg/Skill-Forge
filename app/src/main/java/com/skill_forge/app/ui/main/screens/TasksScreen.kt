@@ -2,7 +2,6 @@ package com.skill_forge.app.ui.main.screens
 
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,50 +22,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
+// Import Network Service
+import com.skill_forge.app.network.GeminiService
+
+// Import Models
+import com.skill_forge.app.ui.main.models.*
+
 import kotlinx.coroutines.launch
-import java.util.UUID
-
-// ==================== DATA MODELS ====================
-
-enum class QuestRarity(val displayName: String, val color: Color, val icon: String, val xpReward: Int) {
-    COMMON("Common", Color(0xFFB0BEC5), "⚪", 100),
-    RARE("Rare", Color(0xFF00E5FF), "🔵", 250),
-    EPIC("Epic", Color(0xFFD500F9), "🟣", 500),
-    LEGENDARY("Legendary", Color(0xFFFFAB00), "🟠", 1000)
-}
-
-data class SubQuest(val id: String = UUID.randomUUID().toString(), val title: String = "", var isCompleted: Boolean = false) {
-    constructor() : this(UUID.randomUUID().toString(), "", false)
-}
-
-data class Quest(
-    val id: String = UUID.randomUUID().toString(),
-    val title: String = "",
-    val rarity: Int = 0,
-    val subQuests: List<SubQuest> = emptyList(),
-    val status: Int = 0, // 0: Active, 1: Completed
-    val createdAt: Long = System.currentTimeMillis()
-) {
-    constructor() : this(UUID.randomUUID().toString(), "", 0, emptyList(), 0, System.currentTimeMillis())
-    val rarityEnum: QuestRarity get() = QuestRarity.entries.getOrElse(rarity) { QuestRarity.COMMON }
-    val progress: Float get() = if (subQuests.isEmpty()) 0f else subQuests.count { it.isCompleted }.toFloat() / subQuests.size
-}
-
-// ==================== MAIN SCREEN ====================
 
 @Composable
 fun TaskScreen() {
-    val db = FirebaseFirestore.getInstance()
+    // FIX: Use the specific "skillforge" database instance
+    val db = remember { FirebaseFirestore.getInstance("skillforge") }
     val auth = FirebaseAuth.getInstance()
     val userId = auth.currentUser?.uid ?: ""
     val context = LocalContext.current
@@ -75,21 +51,32 @@ fun TaskScreen() {
     // State for Quests
     var quests by remember { mutableStateOf<List<Quest>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Active, 1 = Completed
     var showNewQuestDialog by remember { mutableStateOf(false) }
 
-    // State for AI Rewards
-    var showRewardDialog by remember { mutableStateOf(false) }
-    var rewardCode by remember { mutableStateOf("") }
-    var rewardTitle by remember { mutableStateOf("") }
+    // State for Quiz Logic
+    var showQuizContextDialog by remember { mutableStateOf(false) }
+    var showQuizInterface by remember { mutableStateOf(false) }
     var isAiLoading by remember { mutableStateOf(false) }
+
+    // Data holding for the active quiz flow
+    var activeQuestForQuiz by remember { mutableStateOf<Quest?>(null) }
+    var generatedQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
 
     // Firebase Listener
     DisposableEffect(userId) {
-        if (userId.isEmpty()) { isLoading = false; return@DisposableEffect onDispose { } }
+        if (userId.isEmpty()) {
+            isLoading = false
+            return@DisposableEffect onDispose { }
+        }
+
         val listener = db.collection("users").document(userId).collection("quests")
             .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, _ ->
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    isLoading = false
+                    return@addSnapshotListener
+                }
                 quests = snapshot?.documents?.mapNotNull { it.toObject(Quest::class.java) } ?: emptyList()
                 isLoading = false
             }
@@ -121,16 +108,16 @@ fun TaskScreen() {
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     val filtered = quests.filter { if (selectedTab == 0) it.status == 0 else it.status == 1 }
                     items(filtered, key = { it.id }) { quest ->
-                        QuestCard(quest, userId, db) { completedQuest ->
-                            // CALLBACK: Trigger AI when quest completes
-                            scope.launch {
-                                isAiLoading = true
-                                rewardTitle = completedQuest.title
-                                rewardCode = GeminiService.generateQuestLoot(completedQuest.title)
-                                isAiLoading = false
-                                showRewardDialog = true
+                        QuestCard(
+                            quest = quest,
+                            userId = userId,
+                            db = db,
+                            onAttemptCompletion = { q ->
+                                // Start the completion flow
+                                activeQuestForQuiz = q
+                                showQuizContextDialog = true
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -143,30 +130,94 @@ fun TaskScreen() {
             containerColor = Color(0xFF00E5FF)
         ) { Icon(Icons.Default.Add, "Add") }
 
-        // AI Loading Overlay
+        // ================= DIALOGS & OVERLAYS =================
+
+        // 1. Create New Quest Dialog
+        if (showNewQuestDialog) {
+            QuickQuestDialog(
+                onDismiss = { showNewQuestDialog = false },
+                onQuestCreated = { q ->
+                    if(userId.isNotEmpty()) {
+                        db.collection("users").document(userId).collection("quests").document(q.id).set(q)
+                    }
+                    showNewQuestDialog = false
+                }
+            )
+        }
+
+        // 2. Context Dialog (User enters description for quiz)
+        if (showQuizContextDialog && activeQuestForQuiz != null) {
+            QuizContextInputDialog(
+                questTitle = activeQuestForQuiz!!.title,
+                onDismiss = { showQuizContextDialog = false },
+                onConfirm = { description ->
+                    showQuizContextDialog = false
+                    isAiLoading = true
+
+                    // Call AI
+                    scope.launch {
+                        try {
+                            // Using generateTaskQuiz which returns List<QuizQuestion>
+                            val questions = GeminiService.generateTaskQuiz(description)
+
+                            if (questions.isNotEmpty()) {
+                                generatedQuestions = questions
+                                showQuizInterface = true
+                            } else {
+                                Toast.makeText(context, "AI failed to generate quiz. Try again.", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            isAiLoading = false
+                        }
+                    }
+                }
+            )
+        }
+
+        // 3. AI Loading State
         if (isAiLoading) {
             Dialog(onDismissRequest = {}) {
                 Card(colors = CardDefaults.cardColors(Color(0xFF1E1E1E))) {
                     Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = Color(0xFFFFAB00))
                         Spacer(Modifier.height(16.dp))
-                        Text("Forging Loot...", color = Color.White)
+                        Text("Forging Quiz...", color = Color.White)
                     }
                 }
             }
         }
 
-        // Reward Dialog
-        if (showRewardDialog) {
-            CodeRewardDialog(rewardCode, rewardTitle) { showRewardDialog = false }
-        }
+        // 4. Actual Quiz Interface
+        if (showQuizInterface && activeQuestForQuiz != null) {
+            QuizDialog(
+                questions = generatedQuestions,
+                onDismiss = { showQuizInterface = false },
+                onSuccess = {
+                    showQuizInterface = false
+                    val quest = activeQuestForQuiz!!
 
-        // New Quest Dialog (Simplified for brevity, logic same as before)
-        if (showNewQuestDialog) {
-            QuickQuestDialog(onDismiss = { showNewQuestDialog = false }, onQuestCreated = { q ->
-                if(userId.isNotEmpty()) db.collection("users").document(userId).collection("quests").document(q.id).set(q)
-                showNewQuestDialog = false
-            })
+                    // UPDATE DB: Just Mark Completed (NO XP GIVEN)
+                    val userRef = db.collection("users").document(userId)
+                    val questRef = userRef.collection("quests").document(quest.id)
+
+                    val batch = db.batch()
+
+                    // 1. Mark quest as completed
+                    batch.update(questRef, "status", 1)
+
+                    // XP REWARD REMOVED AS REQUESTED
+                    // batch.update(userRef, "xp", FieldValue.increment(quest.difficultyEnum.xpReward.toLong()))
+
+                    batch.commit().addOnSuccessListener {
+                        Toast.makeText(context, "Quest Completed!", Toast.LENGTH_SHORT).show()
+                        activeQuestForQuiz = null
+                    }.addOnFailureListener {
+                        Toast.makeText(context, "Failed to update progress", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
         }
     }
 }
@@ -174,7 +225,12 @@ fun TaskScreen() {
 // ==================== COMPONENTS ====================
 
 @Composable
-fun QuestCard(quest: Quest, userId: String, db: FirebaseFirestore, onComplete: (Quest) -> Unit) {
+fun QuestCard(
+    quest: Quest,
+    userId: String,
+    db: FirebaseFirestore,
+    onAttemptCompletion: (Quest) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
 
     Card(
@@ -184,13 +240,22 @@ fun QuestCard(quest: Quest, userId: String, db: FirebaseFirestore, onComplete: (
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(48.dp).background(quest.rarityEnum.color.copy(0.2f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                    Text(quest.rarityEnum.icon, fontSize = 24.sp)
+                // Difficulty Icon
+                Box(Modifier.size(48.dp).background(quest.difficultyEnum.color.copy(0.2f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if(quest.status == 1) "✓" else "!",
+                        fontSize = 24.sp,
+                        color = quest.difficultyEnum.color
+                    )
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(quest.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("${quest.rarityEnum.displayName} • ${quest.rarityEnum.xpReward} XP", color = quest.rarityEnum.color, fontSize = 12.sp)
+                    Text(
+                        "${quest.difficultyEnum.displayName}", // Removed XP display from subtitle as well since no XP is given
+                        color = quest.difficultyEnum.color,
+                        fontSize = 12.sp
+                    )
                 }
                 IconButton(onClick = { db.collection("users").document(userId).collection("quests").document(quest.id).delete() }) {
                     Icon(Icons.Default.Delete, null, tint = Color.Gray)
@@ -199,55 +264,45 @@ fun QuestCard(quest: Quest, userId: String, db: FirebaseFirestore, onComplete: (
 
             // Progress Bar
             Spacer(Modifier.height(12.dp))
-            LinearProgressIndicator(progress = { quest.progress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape), color = quest.rarityEnum.color, trackColor = Color.White.copy(0.1f))
+            LinearProgressIndicator(
+                progress = { quest.progress },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = quest.difficultyEnum.color,
+                trackColor = Color.White.copy(0.1f)
+            )
 
             if (expanded) {
                 Spacer(Modifier.height(16.dp))
+                // Subtasks List
                 quest.subQuests.forEach { sub ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(4.dp)) {
                         Checkbox(
                             checked = sub.isCompleted,
                             onCheckedChange = { isChecked ->
                                 val updatedSubs = quest.subQuests.map { if (it.id == sub.id) it.copy(isCompleted = isChecked) else it }
-                                val allDone = updatedSubs.all { it.isCompleted }
-                                val newStatus = if (allDone) 1 else 0
-
                                 db.collection("users").document(userId).collection("quests").document(quest.id)
-                                    .update(mapOf("subQuests" to updatedSubs, "status" to newStatus))
-
-                                // Trigger completion if status changed from Active(0) to Complete(1)
-                                if (allDone && quest.status == 0) {
-                                    onComplete(quest)
-                                }
+                                    .update("subQuests", updatedSubs)
                             },
-                            colors = CheckboxDefaults.colors(checkedColor = quest.rarityEnum.color)
+                            colors = CheckboxDefaults.colors(checkedColor = quest.difficultyEnum.color)
                         )
-                        Text(sub.title, color = if (sub.isCompleted) Color.Gray else Color.White, textDecoration = if (sub.isCompleted) TextDecoration.LineThrough else null)
+                        Text(
+                            sub.title,
+                            color = if (sub.isCompleted) Color.Gray else Color.White,
+                            textDecoration = if (sub.isCompleted) TextDecoration.LineThrough else null
+                        )
                     }
                 }
-            }
-        }
-    }
-}
 
-@Composable
-fun CodeRewardDialog(code: String, title: String, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(2.dp, Color(0xFFFFAB00))
-        ) {
-            Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
-                Text("QUEST COMPLETE!", color = Color(0xFFFFAB00), fontWeight = FontWeight.Black, fontSize = 20.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
-                Text("AI Loot for: $title", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
-
-                Box(Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(8.dp)).padding(16.dp)) {
-                    Text(code, color = Color(0xFF00E5FF), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFAB00)), modifier = Modifier.fillMaxWidth()) {
-                    Text("Claim Reward", color = Color.Black, fontWeight = FontWeight.Bold)
+                // Completion Button (Only if Active)
+                if (quest.status == 0) {
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = { onAttemptCompletion(quest) },
+                        colors = ButtonDefaults.buttonColors(containerColor = quest.difficultyEnum.color),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Verify & Complete Quest", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -256,22 +311,127 @@ fun CodeRewardDialog(code: String, title: String, onDismiss: () -> Unit) {
 
 @Composable
 fun QuickQuestDialog(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
-    // (Previous implementation - omitted to save space, but logically needed here)
-    // Simply copy the QuickQuestDialog from the previous response here.
     var title by remember { mutableStateOf("") }
     var subTasksText by remember { mutableStateOf("") }
+    var selectedDifficulty by remember { mutableStateOf(QuestDifficulty.EASY) }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(colors = CardDefaults.cardColors(Color(0xFF263238))) {
             Column(Modifier.padding(24.dp)) {
                 Text("New Quest", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") })
-                OutlinedTextField(value = subTasksText, onValueChange = { subTasksText = it }, label = { Text("Subtasks (lines)") }, minLines = 3)
+                Spacer(Modifier.height(16.dp))
+
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true)
+                Spacer(Modifier.height(8.dp))
+
+                // Difficulty Selection
+                Text("Difficulty", color = Color.Gray, fontSize = 12.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    QuestDifficulty.entries.forEach { diff ->
+                        FilterChip(
+                            selected = selectedDifficulty == diff,
+                            onClick = { selectedDifficulty = diff },
+                            label = { Text(diff.displayName) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = diff.color,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = subTasksText, onValueChange = { subTasksText = it }, label = { Text("Subtasks (one per line)") }, minLines = 3)
+
+                Spacer(Modifier.height(16.dp))
                 Button(onClick = {
                     if (title.isNotBlank()) {
                         val subs = subTasksText.split("\n").filter { it.isNotBlank() }.map { SubQuest(title = it.trim()) }
-                        onQuestCreated(Quest(title = title, subQuests = subs))
+                        onQuestCreated(Quest(title = title, subQuests = subs, difficulty = selectedDifficulty.name))
                     }
-                }) { Text("Create") }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Create Quest") }
+            }
+        }
+    }
+}
+
+@Composable
+fun QuizContextInputDialog(questTitle: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var description by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(colors = CardDefaults.cardColors(Color(0xFF1E1E1E))) {
+            Column(Modifier.padding(24.dp)) {
+                Text("Proof of Knowledge", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Describe what you learned in '$questTitle' to generate a quiz.", color = Color.Gray, fontSize = 14.sp)
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    placeholder = { Text("e.g., I learned about for-loops in Kotlin...") }
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = { if(description.isNotBlank()) onConfirm(description) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Start Quiz", color = Color.Black)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QuizDialog(questions: List<QuizQuestion>, onDismiss: () -> Unit, onSuccess: () -> Unit) {
+    var currentQuestionIndex by remember { mutableIntStateOf(0) }
+    var score by remember { mutableIntStateOf(0) }
+    var isFinished by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(colors = CardDefaults.cardColors(Color(0xFF263238)), modifier = Modifier.height(400.dp)) {
+            Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (!isFinished) {
+                    val q = questions.getOrNull(currentQuestionIndex)
+                    if (q != null) {
+                        Text("Question ${currentQuestionIndex + 1}/${questions.size}", color = Color.Gray)
+                        Spacer(Modifier.height(8.dp))
+                        Text(q.question, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(16.dp))
+
+                        q.options.forEachIndexed { index, option ->
+                            OutlinedButton(
+                                onClick = {
+                                    if (index == q.correctIndex) score++
+                                    if (currentQuestionIndex < questions.size - 1) {
+                                        currentQuestionIndex++
+                                    } else {
+                                        isFinished = true
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Text(option, color = Color.White)
+                            }
+                        }
+                    }
+                } else {
+                    // Results
+                    val passed = score >= (questions.size / 2) // Pass if >= 50%
+                    Text(if (passed) "VICTORY!" else "FAILED", color = if (passed) Color.Green else Color.Red, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                    Text("Score: $score/${questions.size}", color = Color.White)
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = {
+                            if (passed) onSuccess() else onDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (passed) Color.Green else Color.Red)
+                    ) {
+                        Text(if (passed) "Complete Quest" else "Try Again Later", color = Color.Black)
+                    }
+                }
             }
         }
     }

@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.foundation.layout)
     implementation(libs.firebase.ai)
+    implementation(libs.play.services.cast)
 
     // --- Testing ---
     testImplementation(libs.junit)

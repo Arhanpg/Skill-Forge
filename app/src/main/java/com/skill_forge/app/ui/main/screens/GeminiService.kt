@@ -1,33 +1,25 @@
-package com.skill_forge.app.ui.main.screens
+package com.skill_forge.app.network // Update package if yours is different
 
 import android.util.Log
+import com.google.gson.Gson
+import com.skill_forge.app.ui.main.models.QuizQuestion
+import com.skill_forge.app.ui.main.models.ServerRequest
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
-import com.google.gson.Gson
-
-// ==================== DATA MODELS ====================
-data class ServerRequest(val topic: String)
-
-data class QuizResponse(
-    val question: String,
-    val options: List<String>,
-    val correctIndex: Int
-)
 
 // ==================== API INTERFACE ====================
 interface QuizApi {
     @POST("generate-quiz")
-    suspend fun getQuiz(@Body request: ServerRequest): List<QuizResponse>
+    suspend fun getQuiz(@Body request: ServerRequest): List<QuizQuestion>
 }
 
 // ==================== SERVICE ====================
 object GeminiService {
 
-    
-    // Example: "https://a1b2-34-56.ngrok-free.app/"
-    private const val BASE_URL = "https://a1b2-34-56.ngrok-free.app/"//update this with your new NGROK url here
+    // IMPORTANT: Update this NGROK URL every time you restart Colab
+    private const val BASE_URL = "https://your-ngrok-url-here.ngrok-free.app/"
 
     private val api: QuizApi by lazy {
         Retrofit.Builder()
@@ -41,23 +33,23 @@ object GeminiService {
         return try {
             Log.d("GeminiService", "Requesting quiz for: $topic")
 
-            // 1. Network Call
+            // 1. Network Call -> Returns List<QuizQuestion> directly
             val responseList = api.getQuiz(ServerRequest(topic))
 
-            // 2. Success Check
             Log.d("GeminiService", "Received ${responseList.size} questions")
 
-            // 3. Convert List Object back to JSON String (if your UI expects a String)
+            // 2. Convert to JSON String to pass to ViewModel (or return List directly if you prefer)
+            // Using Gson to turn the list back into a String string for consistency with your parsing logic
             Gson().toJson(responseList)
 
         } catch (e: Exception) {
             Log.e("GeminiService", "Server Error", e)
-            // Return valid JSON error structure so the UI shows the error cleanly
+            // Return Error JSON
             """
             [
                 {
                     "question": "Connection Failed: ${e.message}",
-                    "options": ["Check URL in Code", "Check Colab", "Check Internet", "Retry"],
+                    "options": ["Check URL", "Check Internet", "Retry", "Skip"],
                     "correctIndex": 0
                 }
             ]
@@ -65,12 +57,29 @@ object GeminiService {
         }
     }
 
+    suspend fun generateTaskQuiz(topic: String): List<QuizQuestion> {
+        return try {
+            Log.d("GeminiService", "Requesting quiz (List) for: $topic")
+            api.getQuiz(ServerRequest(topic)) // Returns List directly
+        } catch (e: Exception) {
+            Log.e("GeminiService", "Server Error", e)
+            listOf(
+                QuizQuestion(
+                    question = "Connection Failed: ${e.message}",
+                    options = listOf("Check URL", "Check Internet", "Retry", "Skip"),
+                    correctIndex = 0
+                )
+            )
+        }
+    }
     suspend fun generateQuestLoot(questTitle: String): String {
+        // Simulating AI Loot generation for now (since we don't have a specific endpoint)
+        kotlinx.coroutines.delay(1000)
         return """
-            // Loot for: $questTitle
-            fun reward() {
-                println("You completed $questTitle!")
-            }
+            // AI REWARD FOR: $questTitle
+            val loot = "Rare Gem"
+            val bonusXp = 500
+            println("You found a hidden item!")
         """.trimIndent()
     }
 }

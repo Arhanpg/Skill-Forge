@@ -11,19 +11,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavHostController
-import com.skill_forge.ui.main.components.BottomNavigationBar
-import com.skill_forge.app.ui.main.screens.HomeScreen
-import com.skill_forge.app.ui.main.screens.ProfileScreen
-import com.skill_forge.app.ui.main.screens.SkillTreeScreen // IMPORT ADDED
-import com.skill_forge.app.ui.main.screens.StoreScreen
-import com.skill_forge.app.ui.main.screens.TaskScreen
 import com.google.firebase.auth.FirebaseAuth
 
+// --- IMPORTS ---
+// Ensure this package matches where your BottomNavigationBar file is located
+import com.skill_forge.ui.main.components.BottomNavigationBar
+
+import com.skill_forge.app.ui.main.screens.HomeScreen
+import com.skill_forge.app.ui.main.screens.HomeViewModel
+import com.skill_forge.app.ui.main.screens.ProfileScreen
+import com.skill_forge.app.ui.main.screens.SkillTreeScreen
+import com.skill_forge.app.ui.main.screens.StoreScreen
+import com.skill_forge.app.ui.main.screens.TaskScreen
 
 @Composable
-fun MainScreen(navController: NavHostController) {
+fun MainScreen(
+    navController: NavHostController, // Parent navController (for auth logout etc)
+    homeViewModel: HomeViewModel      // ViewModel passed from MainActivity -> NavGraph
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
-
     val auth = FirebaseAuth.getInstance()
 
     Scaffold(
@@ -51,9 +57,10 @@ fun MainScreen(navController: NavHostController) {
         ) {
             Box(modifier = Modifier.padding(paddingValues)) {
                 when (selectedTab) {
-                    0 -> HomeScreen()
+                    // FIX: Pass the homeViewModel here!
+                    0 -> HomeScreen(viewModel = homeViewModel)
                     1 -> TaskScreen()
-                    2 -> SkillTreeScreen() // ADDED SKILL TREE SCREEN
+                    2 -> SkillTreeScreen()
                     3 -> StoreScreen()
                     4 -> ProfileScreen(auth, navController)
                 }
