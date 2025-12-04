@@ -1,8 +1,17 @@
 package com.skill_forge.app.ui.main.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,14 +22,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -28,38 +44,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-
-// Import Network Service
 import com.skill_forge.app.network.GeminiService
-
-// Import Models
 import com.skill_forge.app.ui.main.models.*
-
 import kotlinx.coroutines.launch
 
 @Composable
 fun TaskScreen() {
-    // FIX: Use the specific "skillforge" database instance
     val db = remember { FirebaseFirestore.getInstance("skillforge") }
     val auth = FirebaseAuth.getInstance()
     val userId = auth.currentUser?.uid ?: ""
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // State for Quests
+    // --- CYBER THEME COLORS ---
+    val cyberBlue = Color(0xFF00E5FF)
+    val cyberPurple = Color(0xFFD500F9)
+    val deepBg = Brush.verticalGradient(listOf(Color(0xFF0B0F19), Color(0xFF162238)))
+    val cardBg = Color(0xFF131B29)
+
+    // State
     var quests by remember { mutableStateOf<List<Quest>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Active, 1 = Completed
     var showNewQuestDialog by remember { mutableStateOf(false) }
 
-    // State for Quiz Logic
+    // Quiz State
     var showQuizContextDialog by remember { mutableStateOf(false) }
     var showQuizInterface by remember { mutableStateOf(false) }
     var isAiLoading by remember { mutableStateOf(false) }
-
-    // Data holding for the active quiz flow
     var activeQuestForQuiz by remember { mutableStateOf<Quest?>(null) }
     var generatedQuestions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
 
@@ -83,37 +96,95 @@ fun TaskScreen() {
         onDispose { listener.remove() }
     }
 
-    val backgroundBrush = Brush.verticalGradient(listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)))
-
-    Box(Modifier.fillMaxSize().background(backgroundBrush)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(deepBg)
+    ) {
         Column(Modifier.fillMaxSize()) {
-            // Header
-            Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("QUEST BOARD", fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 2.sp)
+            // --- HEADER ---
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp, bottom = 16.dp, start = 20.dp, end = 20.dp)
+            ) {
+                Text(
+                    "QUEST BOARD",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    letterSpacing = 2.sp
+                )
+                Text(
+                    "Manage your missions",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
             }
 
-            // Tabs
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(50.dp).background(Color.Black.copy(0.3f), CircleShape).padding(4.dp)) {
-                listOf("Active", "Completed").forEachIndexed { index, title ->
-                    Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape).background(if (selectedTab == index) Color(0xFF00E5FF) else Color.Transparent).clickable { selectedTab = index }, contentAlignment = Alignment.Center) {
-                        Text(title, color = if (selectedTab == index) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
+            // --- CYBER TABS ---
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(50.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0F172A))
+                    .padding(4.dp)
+            ) {
+                listOf("ACTIVE", "COMPLETED").forEachIndexed { index, title ->
+                    val isSelected = selectedTab == index
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isSelected) Brush.horizontalGradient(
+                                    listOf(
+                                        cyberBlue.copy(alpha = 0.2f),
+                                        cyberPurple.copy(alpha = 0.2f)
+                                    )
+                                ) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                            )
+                            .border(
+                                width = if (isSelected) 1.dp else 0.dp,
+                                color = if (isSelected) cyberBlue.copy(0.5f) else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .clickable { selectedTab = index },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            title,
+                            color = if (isSelected) cyberBlue else Color.Gray,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 12.sp,
+                            letterSpacing = 1.sp
+                        )
                     }
                 }
             }
 
-            // List
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- LIST ---
             if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00E5FF)) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = cyberBlue)
+                }
             } else {
-                LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyColumn(
+                    contentPadding = PaddingValues(bottom = 100.dp, start = 20.dp, end = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     val filtered = quests.filter { if (selectedTab == 0) it.status == 0 else it.status == 1 }
                     items(filtered, key = { it.id }) { quest ->
-                        QuestCard(
+                        CyberQuestCard(
                             quest = quest,
                             userId = userId,
                             db = db,
                             onAttemptCompletion = { q ->
-                                // Start the completion flow
                                 activeQuestForQuiz = q
                                 showQuizContextDialog = true
                             }
@@ -123,172 +194,242 @@ fun TaskScreen() {
             }
         }
 
-        // Add Button
+        // --- FAB ---
         FloatingActionButton(
             onClick = { showNewQuestDialog = true },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
-            containerColor = Color(0xFF00E5FF)
-        ) { Icon(Icons.Default.Add, "Add") }
-
-        // ================= DIALOGS & OVERLAYS =================
-
-        // 1. Create New Quest Dialog
-        if (showNewQuestDialog) {
-            QuickQuestDialog(
-                onDismiss = { showNewQuestDialog = false },
-                onQuestCreated = { q ->
-                    if(userId.isNotEmpty()) {
-                        db.collection("users").document(userId).collection("quests").document(q.id).set(q)
-                    }
-                    showNewQuestDialog = false
-                }
-            )
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(24.dp),
+            containerColor = Color.Transparent,
+            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+        ) {
+            // Custom Gradient FAB
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .shadow(10.dp, CircleShape, spotColor = cyberBlue)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(cyberBlue, cyberPurple))),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Add, "Add", tint = Color.White)
+            }
         }
 
-        // 2. Context Dialog (User enters description for quiz)
+        // ================= DIALOGS =================
+
+        if (showNewQuestDialog) {
+            CyberDialog(onDismiss = { showNewQuestDialog = false }) {
+                QuickQuestContent(
+                    onDismiss = { showNewQuestDialog = false },
+                    onQuestCreated = { q ->
+                        if (userId.isNotEmpty()) {
+                            db.collection("users").document(userId).collection("quests").document(q.id).set(q)
+                        }
+                        showNewQuestDialog = false
+                    }
+                )
+            }
+        }
+
         if (showQuizContextDialog && activeQuestForQuiz != null) {
-            QuizContextInputDialog(
-                questTitle = activeQuestForQuiz!!.title,
-                onDismiss = { showQuizContextDialog = false },
-                onConfirm = { description ->
-                    showQuizContextDialog = false
-                    isAiLoading = true
-
-                    // Call AI
-                    scope.launch {
-                        try {
-                            // Using generateTaskQuiz which returns List<QuizQuestion>
-                            val questions = GeminiService.generateTaskQuiz(description)
-
-                            if (questions.isNotEmpty()) {
-                                generatedQuestions = questions
-                                showQuizInterface = true
-                            } else {
-                                Toast.makeText(context, "AI failed to generate quiz. Try again.", Toast.LENGTH_SHORT).show()
+            CyberDialog(onDismiss = { showQuizContextDialog = false }) {
+                QuizContextContent(
+                    questTitle = activeQuestForQuiz!!.title,
+                    onConfirm = { description ->
+                        showQuizContextDialog = false
+                        isAiLoading = true
+                        scope.launch {
+                            try {
+                                val questions = GeminiService.generateTaskQuiz(description)
+                                if (questions.isNotEmpty()) {
+                                    generatedQuestions = questions
+                                    showQuizInterface = true
+                                } else {
+                                    Toast.makeText(context, "AI failed to generate quiz.", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isAiLoading = false
                             }
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                        } finally {
-                            isAiLoading = false
                         }
                     }
-                }
-            )
+                )
+            }
         }
 
-        // 3. AI Loading State
         if (isAiLoading) {
             Dialog(onDismissRequest = {}) {
-                Card(colors = CardDefaults.cardColors(Color(0xFF1E1E1E))) {
-                    Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFFFFAB00))
+                Box(
+                    modifier = Modifier
+                        .size(200.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(cardBg)
+                        .border(1.dp, cyberBlue.copy(0.3f), RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = cyberBlue)
                         Spacer(Modifier.height(16.dp))
-                        Text("Forging Quiz...", color = Color.White)
+                        Text("FORGING QUIZ...", color = cyberBlue, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     }
                 }
             }
         }
 
-        // 4. Actual Quiz Interface
         if (showQuizInterface && activeQuestForQuiz != null) {
-            QuizDialog(
-                questions = generatedQuestions,
-                onDismiss = { showQuizInterface = false },
-                onSuccess = {
-                    showQuizInterface = false
-                    val quest = activeQuestForQuiz!!
-
-                    // UPDATE DB: Just Mark Completed (NO XP GIVEN)
-                    val userRef = db.collection("users").document(userId)
-                    val questRef = userRef.collection("quests").document(quest.id)
-
-                    val batch = db.batch()
-
-                    // 1. Mark quest as completed
-                    batch.update(questRef, "status", 1)
-
-                    // XP REWARD REMOVED AS REQUESTED
-                    // batch.update(userRef, "xp", FieldValue.increment(quest.difficultyEnum.xpReward.toLong()))
-
-                    batch.commit().addOnSuccessListener {
-                        Toast.makeText(context, "Quest Completed!", Toast.LENGTH_SHORT).show()
-                        activeQuestForQuiz = null
-                    }.addOnFailureListener {
-                        Toast.makeText(context, "Failed to update progress", Toast.LENGTH_SHORT).show()
+            CyberDialog(onDismiss = { showQuizInterface = false }) {
+                QuizContent(
+                    questions = generatedQuestions,
+                    onDismiss = { showQuizInterface = false },
+                    onSuccess = {
+                        showQuizInterface = false
+                        val quest = activeQuestForQuiz!!
+                        val batch = db.batch()
+                        val questRef = db.collection("users").document(userId).collection("quests").document(quest.id)
+                        batch.update(questRef, "status", 1)
+                        batch.commit().addOnSuccessListener {
+                            Toast.makeText(context, "Quest Completed!", Toast.LENGTH_SHORT).show()
+                            activeQuestForQuiz = null
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
 
-// ==================== COMPONENTS ====================
+// ==================== CYBER COMPONENTS ====================
 
 @Composable
-fun QuestCard(
+fun CyberDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .border(
+                    width = 2.dp,
+                    brush = Brush.verticalGradient(listOf(Color(0xFF00E5FF), Color(0xFFD500F9))),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF0B0F19))
+                .padding(2.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CyberQuestCard(
     quest: Quest,
     userId: String,
     db: FirebaseFirestore,
     onAttemptCompletion: (Quest) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val cyberBlue = Color(0xFF00E5FF)
 
-    Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize().clickable { expanded = !expanded },
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E272E)),
-        shape = RoundedCornerShape(16.dp)
+    // Status colors
+    val statusColor = if (quest.status == 1) Color(0xFF00E676) else quest.difficultyEnum.color
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF131B29))
+            .border(1.dp, Color.White.copy(0.05f), RoundedCornerShape(16.dp))
+            .clickable { expanded = !expanded }
+            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessLow))
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Difficulty Icon
-                Box(Modifier.size(48.dp).background(quest.difficultyEnum.color.copy(0.2f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = if(quest.status == 1) "✓" else "!",
-                        fontSize = 24.sp,
-                        color = quest.difficultyEnum.color
-                    )
-                }
+                // Difficulty Dot
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                        .shadow(8.dp, CircleShape, spotColor = statusColor)
+                )
+
                 Spacer(Modifier.width(16.dp))
+
                 Column(Modifier.weight(1f)) {
-                    Text(quest.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text(
-                        "${quest.difficultyEnum.displayName}", // Removed XP display from subtitle as well since no XP is given
-                        color = quest.difficultyEnum.color,
-                        fontSize = 12.sp
+                        quest.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        quest.difficultyEnum.displayName.uppercase(),
+                        color = Color.Gray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp
                     )
                 }
+
                 IconButton(onClick = { db.collection("users").document(userId).collection("quests").document(quest.id).delete() }) {
-                    Icon(Icons.Default.Delete, null, tint = Color.Gray)
+                    Icon(Icons.Default.Delete, null, tint = Color.White.copy(0.3f), modifier = Modifier.size(20.dp))
                 }
+
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = cyberBlue,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
             }
 
             // Progress Bar
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
                 progress = { quest.progress },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = quest.difficultyEnum.color,
-                trackColor = Color.White.copy(0.1f)
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = statusColor,
+                trackColor = Color.White.copy(0.05f)
             )
 
             if (expanded) {
                 Spacer(Modifier.height(16.dp))
+
                 // Subtasks List
                 quest.subQuests.forEach { sub ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                        Checkbox(
-                            checked = sub.isCompleted,
-                            onCheckedChange = { isChecked ->
-                                val updatedSubs = quest.subQuests.map { if (it.id == sub.id) it.copy(isCompleted = isChecked) else it }
-                                db.collection("users").document(userId).collection("quests").document(quest.id)
-                                    .update("subQuests", updatedSubs)
-                            },
-                            colors = CheckboxDefaults.colors(checkedColor = quest.difficultyEnum.color)
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(0.2f))
+                            .padding(8.dp)
+                    ) {
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides false) {
+                            Checkbox(
+                                checked = sub.isCompleted,
+                                onCheckedChange = { isChecked ->
+                                    val updatedSubs = quest.subQuests.map { if (it.id == sub.id) it.copy(isCompleted = isChecked) else it }
+                                    db.collection("users").document(userId).collection("quests").document(quest.id)
+                                        .update("subQuests", updatedSubs)
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = statusColor,
+                                    uncheckedColor = Color.Gray
+                                )
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
                         Text(
                             sub.title,
-                            color = if (sub.isCompleted) Color.Gray else Color.White,
-                            textDecoration = if (sub.isCompleted) TextDecoration.LineThrough else null
+                            color = if (sub.isCompleted) Color.Gray else Color.White.copy(0.9f),
+                            textDecoration = if (sub.isCompleted) TextDecoration.LineThrough else null,
+                            fontSize = 14.sp
                         )
                     }
                 }
@@ -298,10 +439,19 @@ fun QuestCard(
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = { onAttemptCompletion(quest) },
-                        colors = ButtonDefaults.buttonColors(containerColor = quest.difficultyEnum.color),
-                        modifier = Modifier.fillMaxWidth()
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        contentPadding = PaddingValues(),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
-                        Text("Verify & Complete Quest", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Brush.horizontalGradient(listOf(cyberBlue, Color(0xFF2979FF)))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("VERIFY & COMPLETE", color = Color.White, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        }
                     }
                 }
             }
@@ -309,130 +459,197 @@ fun QuestCard(
     }
 }
 
+// ==================== DIALOG CONTENTS ====================
+
 @Composable
-fun QuickQuestDialog(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
+fun QuickQuestContent(onDismiss: () -> Unit, onQuestCreated: (Quest) -> Unit) {
     var title by remember { mutableStateOf("") }
     var subTasksText by remember { mutableStateOf("") }
     var selectedDifficulty by remember { mutableStateOf(QuestDifficulty.EASY) }
+    val cyberBlue = Color(0xFF00E5FF)
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(colors = CardDefaults.cardColors(Color(0xFF263238))) {
-            Column(Modifier.padding(24.dp)) {
-                Text("New Quest", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(16.dp))
-
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true)
-                Spacer(Modifier.height(8.dp))
-
-                // Difficulty Selection
-                Text("Difficulty", color = Color.Gray, fontSize = 12.sp)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    QuestDifficulty.entries.forEach { diff ->
-                        FilterChip(
-                            selected = selectedDifficulty == diff,
-                            onClick = { selectedDifficulty = diff },
-                            label = { Text(diff.displayName) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = diff.color,
-                                selectedLabelColor = Color.Black
-                            )
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = subTasksText, onValueChange = { subTasksText = it }, label = { Text("Subtasks (one per line)") }, minLines = 3)
-
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = {
-                    if (title.isNotBlank()) {
-                        val subs = subTasksText.split("\n").filter { it.isNotBlank() }.map { SubQuest(title = it.trim()) }
-                        onQuestCreated(Quest(title = title, subQuests = subs, difficulty = selectedDifficulty.name))
-                    }
-                }, modifier = Modifier.fillMaxWidth()) { Text("Create Quest") }
-            }
+    Column(Modifier.padding(24.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("NEW QUEST", color = cyberBlue, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null, tint = Color.Gray) }
         }
-    }
-}
 
-@Composable
-fun QuizContextInputDialog(questTitle: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var description by remember { mutableStateOf("") }
-    Dialog(onDismissRequest = onDismiss) {
-        Card(colors = CardDefaults.cardColors(Color(0xFF1E1E1E))) {
-            Column(Modifier.padding(24.dp)) {
-                Text("Proof of Knowledge", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Describe what you learned in '$questTitle' to generate a quiz.", color = Color.Gray, fontSize = 14.sp)
-                Spacer(Modifier.height(16.dp))
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    placeholder = { Text("e.g., I learned about for-loops in Kotlin...") }
+        Spacer(Modifier.height(16.dp))
+
+        CyberTextField(value = title, onValueChange = { title = it }, label = "Quest Title")
+
+        Spacer(Modifier.height(16.dp))
+
+        // Difficulty Selection
+        Text("DIFFICULTY", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            QuestDifficulty.entries.forEach { diff ->
+                FilterChip(
+                    selected = selectedDifficulty == diff,
+                    onClick = { selectedDifficulty = diff },
+                    label = { Text(diff.displayName, fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = diff.color.copy(alpha = 0.2f),
+                        selectedLabelColor = diff.color,
+                        containerColor = Color.Transparent,
+                        labelColor = Color.Gray
+                    ),
+                    // FIXED: Added enabled and selected parameters
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = selectedDifficulty == diff,
+                        borderColor = Color.Gray.copy(0.3f),
+                        selectedBorderColor = diff.color
+                    )
                 )
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = { if(description.isNotBlank()) onConfirm(description) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Start Quiz", color = Color.Black)
-                }
             }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        CyberTextField(
+            value = subTasksText,
+            onValueChange = { subTasksText = it },
+            label = "Subtasks (one per line)",
+            minLines = 3
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                if (title.isNotBlank()) {
+                    val subs = subTasksText.split("\n").filter { it.isNotBlank() }.map { SubQuest(title = it.trim()) }
+                    onQuestCreated(Quest(title = title, subQuests = subs, difficulty = selectedDifficulty.name))
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = cyberBlue),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("CREATE QUEST", color = Color.Black, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-fun QuizDialog(questions: List<QuizQuestion>, onDismiss: () -> Unit, onSuccess: () -> Unit) {
+fun QuizContextContent(questTitle: String, onConfirm: (String) -> Unit) {
+    var description by remember { mutableStateOf("") }
+    val cyberBlue = Color(0xFF00E5FF)
+
+    Column(Modifier.padding(24.dp)) {
+        Text("KNOWLEDGE CHECK", color = cyberBlue, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Spacer(Modifier.height(8.dp))
+        Text("To complete '$questTitle', describe what you learned or achieved.", color = Color.White.copy(0.7f), fontSize = 14.sp)
+
+        Spacer(Modifier.height(24.dp))
+
+        CyberTextField(
+            value = description,
+            onValueChange = { description = it },
+            label = "I learned...",
+            minLines = 4
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = { if(description.isNotBlank()) onConfirm(description) },
+            colors = ButtonDefaults.buttonColors(containerColor = cyberBlue),
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("INITIATE QUIZ", color = Color.Black, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun QuizContent(questions: List<QuizQuestion>, onDismiss: () -> Unit, onSuccess: () -> Unit) {
     var currentQuestionIndex by remember { mutableIntStateOf(0) }
     var score by remember { mutableIntStateOf(0) }
     var isFinished by remember { mutableStateOf(false) }
+    val cyberBlue = Color(0xFF00E5FF)
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(colors = CardDefaults.cardColors(Color(0xFF263238)), modifier = Modifier.height(400.dp)) {
-            Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (!isFinished) {
-                    val q = questions.getOrNull(currentQuestionIndex)
-                    if (q != null) {
-                        Text("Question ${currentQuestionIndex + 1}/${questions.size}", color = Color.Gray)
-                        Spacer(Modifier.height(8.dp))
-                        Text(q.question, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(16.dp))
+    Column(Modifier.padding(24.dp).height(450.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!isFinished) {
+            val q = questions.getOrNull(currentQuestionIndex)
+            if (q != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("QUESTION ${currentQuestionIndex + 1}/${questions.size}", color = cyberBlue, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
 
-                        q.options.forEachIndexed { index, option ->
-                            OutlinedButton(
-                                onClick = {
-                                    if (index == q.correctIndex) score++
-                                    if (currentQuestionIndex < questions.size - 1) {
-                                        currentQuestionIndex++
-                                    } else {
-                                        isFinished = true
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
-                                Text(option, color = Color.White)
-                            }
-                        }
-                    }
-                } else {
-                    // Results
-                    val passed = score >= (questions.size / 2) // Pass if >= 50%
-                    Text(if (passed) "VICTORY!" else "FAILED", color = if (passed) Color.Green else Color.Red, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                    Text("Score: $score/${questions.size}", color = Color.White)
-                    Spacer(Modifier.height(24.dp))
-                    Button(
+                Spacer(Modifier.height(16.dp))
+                Text(q.question, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(24.dp))
+
+                q.options.forEachIndexed { index, option ->
+                    OutlinedButton(
                         onClick = {
-                            if (passed) onSuccess() else onDismiss()
+                            if (index == q.correctIndex) score++
+                            if (currentQuestionIndex < questions.size - 1) {
+                                currentQuestionIndex++
+                            } else {
+                                isFinished = true
+                            }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (passed) Color.Green else Color.Red)
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = BorderStroke(1.dp, Color.White.copy(0.2f)),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text(if (passed) "Complete Quest" else "Try Again Later", color = Color.Black)
+                        Text(option, modifier = Modifier.padding(8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
                     }
                 }
             }
+        } else {
+            // Results
+            val passed = score >= (questions.size / 2) // Pass if >= 50%
+            val resultColor = if (passed) Color(0xFF00E676) else Color(0xFFFF1744)
+
+            Spacer(Modifier.height(40.dp))
+            Icon(
+                if (passed) Icons.Default.Check else Icons.Default.Close,
+                null,
+                tint = resultColor,
+                modifier = Modifier.size(64.dp).background(resultColor.copy(0.1f), CircleShape).padding(12.dp)
+            )
+
+            Spacer(Modifier.height(24.dp))
+            Text(if (passed) "QUEST COMPLETE" else "QUEST FAILED", color = resultColor, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Spacer(Modifier.height(8.dp))
+            Text("Score: $score/${questions.size}", color = Color.White.copy(0.7f))
+
+            Spacer(Modifier.height(40.dp))
+            Button(
+                onClick = { if (passed) onSuccess() else onDismiss() },
+                colors = ButtonDefaults.buttonColors(containerColor = resultColor),
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(if (passed) "CLAIM VICTORY" else "RETURN TO BASE", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
         }
     }
+}
+
+@Composable
+fun CyberTextField(value: String, onValueChange: (String) -> Unit, label: String, minLines: Int = 1) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, color = Color.Gray) },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = minLines,
+        // FIXED: Using focusedContainerColor / unfocusedContainerColor
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Color(0xFF00E5FF),
+            unfocusedBorderColor = Color.White.copy(0.2f),
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            cursorColor = Color(0xFF00E5FF),
+            focusedContainerColor = Color(0xFF131B29),
+            unfocusedContainerColor = Color(0xFF131B29)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    )
 }
