@@ -167,7 +167,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
             Spacer(modifier = Modifier.height(24.dp))
 
             // ==========================================
-            // --- NEW: RANK CARD UI (From Screenshot) ---
+            // --- RANK CARD UI ---
             // ==========================================
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBg),
@@ -175,7 +175,6 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    // Optional: Add a subtle border like the screenshot
                     .border(1.dp, Color(0xFF2D3748), RoundedCornerShape(16.dp))
             ) {
                 Row(
@@ -229,6 +228,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
             Spacer(modifier = Modifier.height(24.dp))
 
             // --- STATS CHIPS ---
+            // Existing Chips (School/DOB) still use Icons as we don't have images for them yet
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 if (userProfile.qualification.isNotEmpty()) {
                     ProfileBadge(Icons.Default.School, userProfile.qualification, neonCyan, cardBg)
@@ -239,9 +239,10 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
+
+            // UPDATED: Now using Custom Image for Coins
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                // Modified these to just show Coins, as XP is now in the Rank Card
-                ProfileBadge(Icons.Default.Settings, "Coins: ${userProfile.coins}", Color.Yellow, cardBg)
+                ProfileBadge(R.drawable.coin_display_outline, "Coins: ${userProfile.coins}", Color.Yellow, cardBg)
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -316,11 +317,30 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 
 // ===================== HELPERS & COMPONENTS =====================
 
+// Original Vector Icon Version (Used for Qualification/DOB)
 @Composable
 fun ProfileBadge(icon: ImageVector, text: String, tint: Color, bgColor: Color) {
     Surface(color = bgColor, shape = RoundedCornerShape(50), border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+// NEW: Drawable Resource ID Version (Used for Coins/XP)
+@Composable
+fun ProfileBadge(iconRes: Int, text: String, tint: Color, bgColor: Color) {
+    Surface(color = bgColor, shape = RoundedCornerShape(50), border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Renders the full color image instead of a tinted icon
+            Image(
+                painter = painterResource(id = iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                contentScale = ContentScale.Fit
+            )
             Spacer(modifier = Modifier.width(6.dp))
             Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }

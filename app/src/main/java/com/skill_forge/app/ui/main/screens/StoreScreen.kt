@@ -14,8 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -274,7 +273,7 @@ fun StoreScreen() {
                     title = "Streak Freezer",
                     description = "Protect your streak for one day!",
                     price = "500 Coins",
-                    iconRes = R.drawable.ic_streak_freeze, // Ensure you have this drawable or change it
+                    iconRes = R.drawable.ic_streak_freezer, // Ensure you have this drawable
                     colorTheme = Color(0xFF4FC3F7),
                     onBuyClick = {
                         if (userId != null && balance >= 500) {
@@ -296,7 +295,7 @@ fun StoreScreen() {
     }
 }
 
-// --- UPDATED HEADER TO SHOW XP AND STREAK ---
+// --- UPDATED HEADER TO SHOW CUSTOM IMAGES ---
 @Composable
 fun StoreHeader(balance: Int, xp: Int, streak: Int) {
     Column(
@@ -335,65 +334,47 @@ fun StoreHeader(balance: Int, xp: Int, streak: Int) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // XP Chip
+            // XP Chip (Custom Image)
             StatChip(
-                icon = Icons.Default.School,
+                icon = painterResource(id = R.drawable.ic_xp),
                 value = "$xp XP",
-                color = Color(0xFFB39DDB) // Light Purple
+                borderColor = Color(0xFF2196F3) // Light Purple Border
             )
 
-            // Streak Chip
+            // Streak Chip (Custom Image)
             StatChip(
-                icon = Icons.Default.LocalFireDepartment,
+                icon = painterResource(id = R.drawable.ic_streak_fire),
                 value = "$streak Days",
-                color = Color(0xFFFFAB91) // Light Orange
+                borderColor = Color(0xFFFF5722) // Light Orange Border
             )
 
-            // Coins Chip
-            Surface(
-                color = Color(0xFF1E1E1E),
-                shape = RoundedCornerShape(50),
-                border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.5f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_coin_outline),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "$balance",
-                        color = Color(0xFFFFD700),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                }
-            }
+            // Coins Chip (Custom Image)
+            StatChip(
+                icon = painterResource(id = R.drawable.coin_display_outline), // Changed from ic_coin_outline to ic_coin to match
+                value = "$balance",
+                borderColor = Color(0xFFFFD700) // Gold Border
+            )
         }
     }
 }
 
 @Composable
-fun StatChip(icon: ImageVector, value: String, color: Color) {
+fun StatChip(icon: Painter, value: String, borderColor: Color) {
     Surface(
         color = Color(0xFF1E1E1E),
         shape = RoundedCornerShape(50),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.5f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Use Color.Unspecified to avoid tinting the custom image
             Icon(
-                imageVector = icon,
+                painter = icon,
                 contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(18.dp)
+                tint = Color.Unspecified,
+                modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
@@ -457,7 +438,12 @@ fun CoinCard(pack: CoinPack, onClick: () -> Unit) {
             ) {
                 Text("COINS", color = textColor.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
-                Image(painterResource(id = R.drawable.ic_coin_outline), null, modifier = Modifier.size(64.dp))
+                // Using ic_coin here as well for consistency
+                Image(
+                    painter = painterResource(id = R.drawable.ic_coin_outline),
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp)
+                )
 
                 Text("${pack.amount}", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = textColor)
 
@@ -488,7 +474,6 @@ fun UtilityCard(
     ) {
         Row(modifier = Modifier.fillMaxSize().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(70.dp).clip(RoundedCornerShape(12.dp)).background(colorTheme.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                // Assuming you have a drawable resource. If using Vector Icons, switch this to Icon(imageVector...)
                 Icon(painterResource(id = iconRes), null, tint = Color.Unspecified, modifier = Modifier.size(40.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))

@@ -34,7 +34,7 @@ fun QuizSessionUI(
     val currentQ = questions[index]
 
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        Text("⚔️ KNOWLEDGE DUEL", color = Color(0xFFFFD700), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("⚔️ KNOWLEDGE DUEL", color = Color(0xFFFFFFFF), fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
         LinearProgressIndicator(
