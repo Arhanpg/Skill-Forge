@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,8 +45,8 @@ import kotlinx.coroutines.launch
 data class CoinPack(
     val amount: Int,
     val title: String,
-    val productId: String, // Matches Google Play Console ID
-    val price: String,     // Display price (e.g., "₹99" or "FREE")
+    val productId: String,
+    val price: String,
     val isBestValue: Boolean = false,
     val isAd: Boolean = false,
     val productDetails: ProductDetails? = null
@@ -58,11 +60,16 @@ fun StoreScreen() {
 
     // Firebase Init
     val auth = remember { FirebaseAuth.getInstance() }
-    val db = remember { FirebaseFirestore.getInstance() }
+
+    // CRITICAL FIX: Use the specific database instance name "skillforge"
+    val db = remember { FirebaseFirestore.getInstance("skillforge") }
+
     val userId = auth.currentUser?.uid
 
-    // Persistent Balance State
+    // Persistent State
     var balance by remember { mutableIntStateOf(0) }
+    var xp by remember { mutableIntStateOf(0) }
+    var streak by remember { mutableIntStateOf(0) }
 
     // Product List State
     val availablePacks = remember { mutableStateListOf<CoinPack>() }
@@ -83,19 +90,19 @@ fun StoreScreen() {
             db.collection("users").document(userId)
                 .set(updateData, SetOptions.merge())
                 .addOnSuccessListener {
-                    Toast.makeText(context, "Added $amount coins!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Transaction successful!", Toast.LENGTH_SHORT).show()
                 }
                 .addOnFailureListener {
                     Toast.makeText(context, "Sync Error: ${it.message}", Toast.LENGTH_SHORT).show()
                 }
         } else {
+            // Guest mode logic
             balance += amount
             Toast.makeText(context, "Guest: Added $amount coins", Toast.LENGTH_SHORT).show()
         }
     }
 
     // --- BILLING STATE ---
-    // We use a mutable state to hold the connected client so UI can use it
     var billingClientState by remember { mutableStateOf<BillingClient?>(null) }
 
     DisposableEffect(Unit) {
@@ -129,7 +136,6 @@ fun StoreScreen() {
             }
         }
 
-        // Initialize Client
         client = BillingClient.newBuilder(context)
             .setListener(purchasesUpdatedListener)
             .enablePendingPurchases()
@@ -140,7 +146,6 @@ fun StoreScreen() {
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(billingResult: BillingResult) {
                 if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                    // Query Products
                     val queryProductDetailsParams = QueryProductDetailsParams.newBuilder()
                         .setProductList(
                             productIds.keys.map {
@@ -155,17 +160,12 @@ fun StoreScreen() {
                     client?.queryProductDetailsAsync(queryProductDetailsParams) { result, productDetailsList ->
                         if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                             availablePacks.clear()
-
-                            // Add Ad Option First
                             availablePacks.add(
                                 CoinPack(10, "Watch AD", "ad_reward", "FREE", isAd = true)
                             )
-
-                            // Add Real Products
                             productDetailsList.forEach { details ->
                                 val amount = productIds[details.productId] ?: 0
                                 val formattedPrice = details.oneTimePurchaseOfferDetails?.formattedPrice ?: "N/A"
-
                                 availablePacks.add(
                                     CoinPack(
                                         amount = amount,
@@ -182,30 +182,30 @@ fun StoreScreen() {
                     }
                 }
             }
-            override fun onBillingServiceDisconnected() {
-                // Logic to retry connection could go here
-            }
+            override fun onBillingServiceDisconnected() { }
         })
 
-        onDispose {
-            client?.endConnection()
-        }
+        onDispose { client?.endConnection() }
     }
 
-    // --- FIRESTORE SYNC ---
+    // --- REAL-TIME FIRESTORE SYNC (Coins, XP, Streak) ---
     LaunchedEffect(userId) {
         if (userId != null) {
             val docRef = db.collection("users").document(userId)
             docRef.addSnapshotListener { snapshot, e ->
                 if (e != null) return@addSnapshotListener
+
                 if (snapshot != null && snapshot.exists()) {
+                    // Fetch all fields safely
                     balance = snapshot.getLong("coins")?.toInt() ?: 0
+                    xp = snapshot.getLong("xp")?.toInt() ?: 0
+                    streak = snapshot.getLong("streakDays")?.toInt() ?: 0
                 }
             }
         }
     }
 
-    // Theme Colors
+    // UI Content
     val darkBackground = Brush.verticalGradient(
         colors = listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
     )
@@ -217,7 +217,10 @@ fun StoreScreen() {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            item { StoreHeader(balance = balance) }
+            // Pass all stats to the header
+            item {
+                StoreHeader(balance = balance, xp = xp, streak = streak)
+            }
 
             item {
                 SectionTitle(title = "Top Up EduCoins", icon = Icons.Default.Add)
@@ -271,7 +274,7 @@ fun StoreScreen() {
                     title = "Streak Freezer",
                     description = "Protect your streak for one day!",
                     price = "500 Coins",
-                    iconRes = R.drawable.ic_streak_freeze,
+                    iconRes = R.drawable.ic_streak_freeze, // Ensure you have this drawable or change it
                     colorTheme = Color(0xFF4FC3F7),
                     onBuyClick = {
                         if (userId != null && balance >= 500) {
@@ -293,8 +296,9 @@ fun StoreScreen() {
     }
 }
 
+// --- UPDATED HEADER TO SHOW XP AND STREAK ---
 @Composable
-fun StoreHeader(balance: Int) {
+fun StoreHeader(balance: Int, xp: Int, streak: Int) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -303,6 +307,7 @@ fun StoreHeader(balance: Int) {
             .padding(24.dp)
             .padding(top = 16.dp)
     ) {
+        // Title Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -321,7 +326,30 @@ fun StoreHeader(balance: Int) {
                     color = Color.Cyan.copy(alpha = 0.7f)
                 )
             }
+        }
 
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Stats Row (XP, Streak, Coins)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // XP Chip
+            StatChip(
+                icon = Icons.Default.School,
+                value = "$xp XP",
+                color = Color(0xFFB39DDB) // Light Purple
+            )
+
+            // Streak Chip
+            StatChip(
+                icon = Icons.Default.LocalFireDepartment,
+                value = "$streak Days",
+                color = Color(0xFFFFAB91) // Light Orange
+            )
+
+            // Coins Chip
             Surface(
                 color = Color(0xFF1E1E1E),
                 shape = RoundedCornerShape(50),
@@ -346,6 +374,34 @@ fun StoreHeader(balance: Int) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun StatChip(icon: ImageVector, value: String, color: Color) {
+    Surface(
+        color = Color(0xFF1E1E1E),
+        shape = RoundedCornerShape(50),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = value,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
         }
     }
 }
@@ -432,6 +488,7 @@ fun UtilityCard(
     ) {
         Row(modifier = Modifier.fillMaxSize().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(70.dp).clip(RoundedCornerShape(12.dp)).background(colorTheme.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                // Assuming you have a drawable resource. If using Vector Icons, switch this to Icon(imageVector...)
                 Icon(painterResource(id = iconRes), null, tint = Color.Unspecified, modifier = Modifier.size(40.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
