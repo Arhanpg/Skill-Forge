@@ -14,9 +14,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
@@ -43,16 +43,15 @@ import coil.request.ImageRequest
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
-// UNIFIED MODEL IMPORT
+import com.skill_forge.app.R // Ensure your R file is imported
 import com.skill_forge.app.ui.main.models.UserProfile
-// Ensure these components exist or comment them out if testing
 import com.skill_forge.app.ui.main.components.AvatarPickerDialog
 import com.skill_forge.app.ui.main.components.EditProfileDialog
 
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
     val user = auth.currentUser
-    val db = FirebaseFirestore.getInstance("skillforge") // Match instance name
+    val db = FirebaseFirestore.getInstance("skillforge")
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
@@ -76,14 +75,20 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
     var showAvatarPicker by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
 
+    // --- RANK CALCULATION ---
+    val currentRank = getRankFromXp(userProfile.xp)
+
     LaunchedEffect(user?.uid) {
         user?.uid?.let { uid ->
             db.collection("users").document(uid).get()
                 .addOnSuccessListener { document ->
                     if (document.exists()) {
                         val profile = document.toObject(UserProfile::class.java)
+                        // Manual mapping to ensure XP/Coins are caught if Auto-map fails
+                        val xp = document.getLong("xp")?.toInt() ?: 0
+                        val coins = document.getLong("coins")?.toInt() ?: 0
                         if (profile != null) {
-                            userProfile = profile
+                            userProfile = profile.copy(xp = xp, coins = coins)
                         }
                     }
                     loading = false
@@ -104,7 +109,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
             modifier = Modifier.fillMaxSize().verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // --- HEADER ---
+            // --- HEADER WITH AVATAR ---
             Box(contentAlignment = Alignment.BottomCenter, modifier = Modifier.fillMaxWidth()) {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(180.dp).padding(bottom = 60.dp)
@@ -151,7 +156,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- USER INFO ---
+            // --- USERNAME ---
             Text(
                 text = userProfile.username.ifEmpty { user?.displayName ?: "Skill Forger" },
                 style = MaterialTheme.typography.headlineMedium,
@@ -161,7 +166,69 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // --- STATS ---
+            // ==========================================
+            // --- NEW: RANK CARD UI (From Screenshot) ---
+            // ==========================================
+            Card(
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    // Optional: Add a subtle border like the screenshot
+                    .border(1.dp, Color(0xFF2D3748), RoundedCornerShape(16.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.EmojiEvents,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700), // Gold color for trophy
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "CURRENT RANK",
+                                color = Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = currentRank.title,
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${userProfile.xp} XP Earned",
+                            color = neonCyan,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Rank Image
+                    Image(
+                        painter = painterResource(id = currentRank.drawableId),
+                        contentDescription = "Rank Badge",
+                        modifier = Modifier.size(64.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // --- STATS CHIPS ---
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 if (userProfile.qualification.isNotEmpty()) {
                     ProfileBadge(Icons.Default.School, userProfile.qualification, neonCyan, cardBg)
@@ -173,8 +240,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                ProfileBadge(Icons.Default.Settings, "XP: ${userProfile.xp}", Color.Green, cardBg)
-                Spacer(modifier = Modifier.width(12.dp))
+                // Modified these to just show Coins, as XP is now in the Rank Card
                 ProfileBadge(Icons.Default.Settings, "Coins: ${userProfile.coins}", Color.Yellow, cardBg)
             }
 
@@ -194,6 +260,7 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // --- LOGOUT BUTTON ---
             Button(
                 onClick = {
                     auth.signOut()
@@ -247,6 +314,8 @@ fun ProfileScreen(auth: FirebaseAuth, navController: NavHostController) {
     }
 }
 
+// ===================== HELPERS & COMPONENTS =====================
+
 @Composable
 fun ProfileBadge(icon: ImageVector, text: String, tint: Color, bgColor: Color) {
     Surface(color = bgColor, shape = RoundedCornerShape(50), border = BorderStroke(1.dp, tint.copy(alpha = 0.3f))) {
@@ -267,5 +336,30 @@ fun ProfileMenuItem(icon: ImageVector, title: String, onClick: () -> Unit) {
         Spacer(modifier = Modifier.width(16.dp))
         Text(text = title, style = MaterialTheme.typography.bodyLarge, color = Color.White, modifier = Modifier.weight(1f))
         Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+    }
+}
+
+// --- RANK DATA MODEL & LOGIC ---
+
+data class RankDisplay(val title: String, val drawableId: Int)
+
+fun getRankFromXp(xp: Int): RankDisplay {
+    // Logic matching your HomeViewModel
+    return when {
+        xp >= 8000 -> RankDisplay("Master III", R.drawable.rank_master_3)
+        xp >= 6000 -> RankDisplay("Master II", R.drawable.rank_master_2)
+        xp >= 4000 -> RankDisplay("Master I", R.drawable.rank_master_1)
+        xp >= 2500 -> RankDisplay("Gold III", R.drawable.rank_gold_3)
+        xp >= 2000 -> RankDisplay("Gold II", R.drawable.rank_gold_2)
+        xp >= 1500 -> RankDisplay("Gold I", R.drawable.rank_gold_1)
+        xp >= 1000 -> RankDisplay("Silver III", R.drawable.rank_silver_3)
+        xp >= 800 -> RankDisplay("Silver II", R.drawable.rank_silver_2)
+        xp >= 600 -> RankDisplay("Silver I", R.drawable.rank_silver_1)
+        xp >= 500 -> RankDisplay("Bronze III", R.drawable.rank_bronze_3)
+        xp >= 400 -> RankDisplay("Bronze II", R.drawable.rank_bronze_2)
+        xp >= 300 -> RankDisplay("Bronze I", R.drawable.rank_bronze_1)
+        xp >= 200 -> RankDisplay("Wood III", R.drawable.rank_wood_3)
+        xp >= 100 -> RankDisplay("Wood II", R.drawable.rank_wood_2)
+        else -> RankDisplay("Wood I", R.drawable.rank_wood_1)
     }
 }
